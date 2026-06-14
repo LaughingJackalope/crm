@@ -1,13 +1,23 @@
 asyncapi: 3.0.0
 info:
   title: CRM — Domain Events
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Asynchronous event contracts for the CRM platform. Each bounded context
     publishes domain events to Kafka topics following the naming convention
     crm.{context}.{aggregate}.{event}. Events are the primary integration
     mechanism — contexts remain loosely coupled and never directly mutate
     another's aggregates.
+
+    ## v1.1 — Failure-Path Events
+
+    Added 12 failure-path domain events to close critical gaps in the
+    choreography matrix: LeadDisqualified, CustomerReactivated,
+    CustomerMergeConflict, SLARecovered, CSATSurveyDeliveryFailed,
+    CampaignDeliveryFailed, SubscriptionCreationFailed,
+    InvoiceGenerationFailed, SubscriptionCancellationFailed,
+    DunningExhausted, SubscriptionSuspended, InvoiceOverdue.
+    Total event count: 55.
 
     ## Topic Naming Convention
 
@@ -538,6 +548,125 @@ channels:
       dunningEscalated:
         $ref: '#/components/messages/DunningEscalated'
 
+  # ═══════════════════════════════════════════════════════════════════════
+  # Failure-Path Events — v1.1
+  # ═══════════════════════════════════════════════════════════════════════
+
+  ciamLeadDisqualified:
+    address: crm.ciam.lead.disqualified
+    description: |
+      Published when a lead's qualification score drops below threshold
+      or consent is revoked. Consumed by Sales to flag stale opportunities.
+    messages:
+      leadDisqualified:
+        $ref: '#/components/messages/LeadDisqualified'
+
+  ciamCustomerReactivated:
+    address: crm.ciam.customer.reactivated
+    description: |
+      Published when a previously deactivated contact is restored.
+      Consumed by all contexts to re-enable services and update lifecycle.
+    messages:
+      customerReactivated:
+        $ref: '#/components/messages/CustomerReactivated'
+
+  ciamCustomerMergeConflict:
+    address: crm.ciam.customer.merge-conflict
+    description: |
+      Published when a customer merge produces data conflicts
+      (e.g., mismatched email addresses). Consumed by all contexts
+      to resolve conflicting references.
+    messages:
+      customerMergeConflict:
+        $ref: '#/components/messages/CustomerMergeConflict'
+
+  supportSlaRecovered:
+    address: crm.support.sla.recovered
+    description: |
+      Published when a previously breached SLA deadline is resolved.
+      Consumed by Communication for management dashboard updates.
+    messages:
+      slaRecovered:
+        $ref: '#/components/messages/SLARecovered'
+
+  supportCsatSurveyDeliveryFailed:
+    address: crm.support.csat.survey-delivery-failed
+    description: |
+      Published when the CSAT survey email/SMS could not be delivered
+      after ticket closure. Consumed by Support for manual follow-up tracking.
+    messages:
+      csatSurveyDeliveryFailed:
+        $ref: '#/components/messages/CSATSurveyDeliveryFailed'
+
+  marketingCampaignDeliveryFailed:
+    address: crm.marketing.campaign.delivery-failed
+    description: |
+      Published when Communication fails to deliver campaign messages.
+      Consumed by Marketing for metrics accuracy and campaign health monitoring.
+    messages:
+      campaignDeliveryFailed:
+        $ref: '#/components/messages/CampaignDeliveryFailed'
+
+  billingSubscriptionCreationFailed:
+    address: crm.billing.subscription.creation-failed
+    description: |
+      Published when subscription creation fails after QuoteAccepted
+      or OpportunityClosed(won). Consumed by Sales for pipeline follow-up
+      and Communication for customer notification.
+    messages:
+      subscriptionCreationFailed:
+        $ref: '#/components/messages/SubscriptionCreationFailed'
+
+  billingInvoiceGenerationFailed:
+    address: crm.billing.invoice.generation-failed
+    description: |
+      Published when invoice generation fails (proration error,
+      missing tax config). Consumed by Communication for
+      customer notification and Support for ticket creation.
+    messages:
+      invoiceGenerationFailed:
+        $ref: '#/components/messages/InvoiceGenerationFailed'
+
+  billingSubscriptionCancellationFailed:
+    address: crm.billing.subscription.cancellation-failed
+    description: |
+      Published when subscription cancellation fails after
+      CustomerDeactivated. Consumed by CIAM for lifecycle
+      state reconciliation and Communication for alerting.
+    messages:
+      subscriptionCancellationFailed:
+        $ref: '#/components/messages/SubscriptionCancellationFailed'
+
+  billingDunningExhausted:
+    address: crm.billing.dunning.exhausted
+    description: |
+      Published after the final (4th) dunning attempt fails.
+      Consumed by Communication for final notice delivery
+      and CIAM for churn risk scoring.
+    messages:
+      dunningExhausted:
+        $ref: '#/components/messages/DunningExhausted'
+
+  billingSubscriptionSuspended:
+    address: crm.billing.subscription.suspended
+    description: |
+      Published when a subscription is suspended (distinct from
+      cancellation — can be reactivated). Consumed by Communication
+      for customer notification and CIAM for lifecycle scoring.
+    messages:
+      subscriptionSuspended:
+        $ref: '#/components/messages/SubscriptionSuspended'
+
+  billingInvoiceOverdue:
+    address: crm.billing.invoice.overdue
+    description: |
+      Published when an invoice passes its dueDate without payment.
+      Consumed by Billing (dunning trigger) and CIAM for customer
+      health score adjustment.
+    messages:
+      invoiceOverdue:
+        $ref: '#/components/messages/InvoiceOverdue'
+
 operations:
   # ── CIAM publishes ────────────────────────────────────────────────────
   publishCiamCustomerRegistered:
@@ -953,9 +1082,106 @@ operations:
     traits:
       - $ref: '#/components/operationTraits/kafka'
 
+  # ── Failure-Path Event Operations ────────────────────────────────────
+  publishCiamLeadDisqualified:
+    action: send
+    channel:
+      $ref: '#/channels/ciamLeadDisqualified'
+    summary: CIAM publishes LeadDisqualified
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamCustomerReactivated:
+    action: send
+    channel:
+      $ref: '#/channels/ciamCustomerReactivated'
+    summary: CIAM publishes CustomerReactivated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamCustomerMergeConflict:
+    action: send
+    channel:
+      $ref: '#/channels/ciamCustomerMergeConflict'
+    summary: CIAM publishes CustomerMergeConflict
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportSlaRecovered:
+    action: send
+    channel:
+      $ref: '#/channels/supportSlaRecovered'
+    summary: Support publishes SLARecovered
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportCsatSurveyDeliveryFailed:
+    action: send
+    channel:
+      $ref: '#/channels/supportCsatSurveyDeliveryFailed'
+    summary: Support publishes CSATSurveyDeliveryFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingCampaignDeliveryFailed:
+    action: send
+    channel:
+      $ref: '#/channels/marketingCampaignDeliveryFailed'
+    summary: Marketing publishes CampaignDeliveryFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingSubscriptionCreationFailed:
+    action: send
+    channel:
+      $ref: '#/channels/billingSubscriptionCreationFailed'
+    summary: Billing publishes SubscriptionCreationFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingInvoiceGenerationFailed:
+    action: send
+    channel:
+      $ref: '#/channels/billingInvoiceGenerationFailed'
+    summary: Billing publishes InvoiceGenerationFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingSubscriptionCancellationFailed:
+    action: send
+    channel:
+      $ref: '#/channels/billingSubscriptionCancellationFailed'
+    summary: Billing publishes SubscriptionCancellationFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingDunningExhausted:
+    action: send
+    channel:
+      $ref: '#/channels/billingDunningExhausted'
+    summary: Billing publishes DunningExhausted
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingSubscriptionSuspended:
+    action: send
+    channel:
+      $ref: '#/channels/billingSubscriptionSuspended'
+    summary: Billing publishes SubscriptionSuspended
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingInvoiceOverdue:
+    action: send
+    channel:
+      $ref: '#/channels/billingInvoiceOverdue'
+    summary: Billing publishes InvoiceOverdue
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
 components:
   # ═══════════════════════════════════════════════════════════════════════
-  # Messages — 43 Domain Events
+  # Messages — 55 Domain Events
   # ═══════════════════════════════════════════════════════════════════════
   messages:
     # ── CIAM Events ──────────────────────────────────────────────────────
@@ -1473,6 +1699,127 @@ components:
         $ref: '#/components/schemas/EventHeaders'
       payload:
         $ref: '#/components/schemas/DunningEscalatedPayload'
+
+    # ── Failure-Path Events ──────────────────────────────────────────────
+    LeadDisqualified:
+      name: LeadDisqualified
+      title: Lead Disqualified
+      summary: A lead's qualification score has dropped below threshold.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/LeadDisqualifiedPayload'
+
+    CustomerReactivated:
+      name: CustomerReactivated
+      title: Customer Reactivated
+      summary: A previously deactivated contact has been restored.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CustomerReactivatedPayload'
+
+    CustomerMergeConflict:
+      name: CustomerMergeConflict
+      title: Customer Merge Conflict
+      summary: A customer merge produced data conflicts.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CustomerMergeConflictPayload'
+
+    SLARecovered:
+      name: SLARecovered
+      title: SLA Recovered
+      summary: A previously breached SLA deadline has been resolved.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SLARecoveredPayload'
+
+    CSATSurveyDeliveryFailed:
+      name: CSATSurveyDeliveryFailed
+      title: CSAT Survey Delivery Failed
+      summary: A CSAT survey could not be delivered after ticket closure.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CSATSurveyDeliveryFailedPayload'
+
+    CampaignDeliveryFailed:
+      name: CampaignDeliveryFailed
+      title: Campaign Delivery Failed
+      summary: Campaign message delivery failed in Communication.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CampaignDeliveryFailedPayload'
+
+    SubscriptionCreationFailed:
+      name: SubscriptionCreationFailed
+      title: Subscription Creation Failed
+      summary: Subscription creation failed after quote acceptance.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SubscriptionCreationFailedPayload'
+
+    InvoiceGenerationFailed:
+      name: InvoiceGenerationFailed
+      title: Invoice Generation Failed
+      summary: Invoice generation failed for a billing period.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/InvoiceGenerationFailedPayload'
+
+    SubscriptionCancellationFailed:
+      name: SubscriptionCancellationFailed
+      title: Subscription Cancellation Failed
+      summary: Subscription cancellation failed after customer deactivation.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SubscriptionCancellationFailedPayload'
+
+    DunningExhausted:
+      name: DunningExhausted
+      title: Dunning Exhausted
+      summary: All dunning retry attempts have been exhausted.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/DunningExhaustedPayload'
+
+    SubscriptionSuspended:
+      name: SubscriptionSuspended
+      title: Subscription Suspended
+      summary: A subscription has been suspended (can be reactivated).
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SubscriptionSuspendedPayload'
+
+    InvoiceOverdue:
+      name: InvoiceOverdue
+      title: Invoice Overdue
+      summary: An invoice has passed its due date without payment.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/InvoiceOverduePayload'
 
   # ═══════════════════════════════════════════════════════════════════════
   # Schemas
@@ -2405,6 +2752,225 @@ components:
           minimum: 1
           maximum: 4
         escalatedAt:
+          type: string
+          format: date-time
+
+    # ── Failure-Path Event Payloads ──────────────────────────────────────
+    LeadDisqualifiedPayload:
+      type: object
+      required: [customerId, contactId, reason, disqualifiedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          enum: [score_below_threshold, consent_revoked, manual_disqualification]
+          description: Reason for disqualification.
+        disqualifiedAt:
+          type: string
+          format: date-time
+
+    CustomerReactivatedPayload:
+      type: object
+      required: [customerId, contactId, reactivatedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        reactivatedAt:
+          type: string
+          format: date-time
+
+    CustomerMergeConflictPayload:
+      type: object
+      required: [survivingContactId, mergedContactId, conflictFields, detectedAt]
+      properties:
+        survivingContactId:
+          type: string
+          format: uuid
+        mergedContactId:
+          type: string
+          format: uuid
+        conflictFields:
+          type: array
+          items:
+            type: string
+          description: |
+            List of field names with conflicting values
+            (e.g., ["email", "phone", "billingAddress"]).
+        detectedAt:
+          type: string
+          format: date-time
+
+    SLARecoveredPayload:
+      type: object
+      required: [ticketId, slaType, deadline, recoveredAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        slaType:
+          type: string
+          enum: [firstResponse, resolution]
+        deadline:
+          type: string
+          format: date-time
+        recoveredAt:
+          type: string
+          format: date-time
+
+    CSATSurveyDeliveryFailedPayload:
+      type: object
+      required: [ticketId, customerId, reason, failedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          description: Failure reason (e.g., invalid_email, channel_unavailable).
+        failedAt:
+          type: string
+          format: date-time
+
+    CampaignDeliveryFailedPayload:
+      type: object
+      required: [campaignId, reason, failedAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          description: Failure reason (e.g., channel_provider_error, rate_limited).
+        failedAt:
+          type: string
+          format: date-time
+
+    SubscriptionCreationFailedPayload:
+      type: object
+      required: [customerId, planId, reason, failedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+        quoteId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The quote that triggered creation, if applicable.
+        opportunityId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The opportunity that triggered creation, if applicable.
+        reason:
+          type: string
+          description: Failure reason (e.g., invalid_plan, payment_method_required).
+        failedAt:
+          type: string
+          format: date-time
+
+    InvoiceGenerationFailedPayload:
+      type: object
+      required: [subscriptionId, customerId, reason, failedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          description: Failure reason (e.g., proration_error, tax_config_missing).
+        failedAt:
+          type: string
+          format: date-time
+
+    SubscriptionCancellationFailedPayload:
+      type: object
+      required: [subscriptionId, customerId, reason, failedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          description: Failure reason (e.g., provider_error, already_cancelled).
+        failedAt:
+          type: string
+          format: date-time
+
+    DunningExhaustedPayload:
+      type: object
+      required: [subscriptionId, invoiceId, finalAttempt, exhaustedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        finalAttempt:
+          type: integer
+          minimum: 4
+          maximum: 4
+          description: Always 4 — the final dunning attempt.
+        exhaustedAt:
+          type: string
+          format: date-time
+
+    SubscriptionSuspendedPayload:
+      type: object
+      required: [subscriptionId, customerId, reason, suspendedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          description: Suspension reason (e.g., payment_failure, policy_violation).
+        suspendedAt:
+          type: string
+          format: date-time
+
+    InvoiceOverduePayload:
+      type: object
+      required: [invoiceId, subscriptionId, customerId, dueDate, overdueAt]
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        dueDate:
+          type: string
+          format: date
+        overdueAt:
           type: string
           format: date-time
 

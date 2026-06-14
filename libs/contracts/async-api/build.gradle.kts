@@ -47,7 +47,7 @@ tasks.register("extractAsyncApiSchemas") {
             |openapi: 3.0.3
             |info:
             |  title: CRM Domain Events
-            |  version: 1.0.0
+            |  version: 1.1.0
             |paths: {}
             |components:
             |  schemas:
