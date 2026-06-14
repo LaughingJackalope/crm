@@ -1,0 +1,68 @@
+[versions]
+# ── Platform ──────────────────────────────────────────────────────────────────
+quarkus = "3.28.1"
+kotlin = "2.2.20"
+
+# ── Serialization / Codegen ──────────────────────────────────────────────────
+jackson = "2.18.1"
+jsonSchema = "4.37.0"
+
+# ── Observability ─────────────────────────────────────────────────────────────
+opentelemetry = "1.43.0"
+micrometer = "1.14.1"
+micrometer-tracing = "1.6.5"
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+junit = "5.11.3"
+mockito = "5.14.2"
+testcontainers = "1.20.4"
+restAssured = "5.5.0"
+
+# ── OpenAPI Generator ────────────────────────────────────────────────────────
+openapiGenerator = "7.9.0"
+
+[libraries]
+# ── Quarkus BOM-managed (no version needed when platform applied) ────────────
+quarkus-rest = { module = "io.quarkus:quarkus-rest" }
+quarkus-rest-jackson = { module = "io.quarkus:quarkus-rest-jackson" }
+quarkus-hibernate-orm-panache = { module = "io.quarkus:quarkus-hibernate-orm-panache" }
+quarkus-hibernate-orm-panache-kotlin = { module = "io.quarkus:quarkus-hibernate-orm-panache-kotlin" }
+quarkus-jdbc-postgresql = { module = "io.quarkus:quarkus-jdbc-postgresql" }
+quarkus-messaging-kafka = { module = "io.quarkus:quarkus-messaging-kafka" }
+quarkus-smallrye-health = { module = "io.quarkus:quarkus-smallrye-health" }
+quarkus-micrometer-registry-prometheus = { module = "io.quarkus:quarkus-micrometer-registry-prometheus" }
+quarkus-oidc = { module = "io.quarkus:quarkus-oidc" }
+quarkus-security = { module = "io.quarkus:quarkus-security" }
+quarkus-arc = { module = "io.quarkus:quarkus-arc" }
+quarkus-kotlin = { module = "io.quarkus:quarkus-kotlin" }
+
+# ── Kotlin ─────────────────────────────────────────────────────────────────────
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version = "1.7.3" }
+kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version = "1.9.0" }
+
+# ── Observability ─────────────────────────────────────────────────────────────
+opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api", version.ref = "opentelemetry" }
+opentelemetry-sdk = { module = "io.opentelemetry:opentelemetry-sdk", version.ref = "opentelemetry" }
+opentelemetry-exporter-otlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp", version.ref = "opentelemetry" }
+opentelemetry-extension-kotlin = { module = "io.opentelemetry:opentelemetry-extension-kotlin", version.ref = "opentelemetry" }
+micrometer-tracing-bridge-otel = { module = "io.micrometer:micrometer-tracing-bridge-otel", version.ref = "micrometer-tracing" }
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-kotlin = { module = "org.mockito.kotlin:mockito-kotlin", version = "5.4.0" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testcontainers" }
+rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "restAssured" }
+quarkus-junit5 = { module = "io.quarkus:quarkus-junit5" }
+quarkus-junit5-mockito = { module = "io.quarkus:quarkus-junit5-mockito" }
+
+[plugins]
+quarkus = { id = "io.quarkus", version.ref = "quarkus" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-plugin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+openapi-generator = { id = "org.openapi.generator", version.ref = "openapiGenerator" }

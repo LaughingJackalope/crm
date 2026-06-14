@@ -1,0 +1,703 @@
+CRM Domain Model — Bounded Contexts
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### 1. Customer Identity & Access Management (CIAM)
+
+ Responsibility: The authoritative source for all person and organization records.
+ Owns identity lifecycle, contact details, consent, and authentication profiles.
+ Every other context references customers by ID but never owns their data.
+
+ Ubiquitous Language:
+
+ ┌───────────────┬─────────────────────────────────────────────────────────────────┐
+ │ Term          │ Definition                                                      │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Customer      │ A person or organization that has a relationship with the       │
+ │               │ business. The root identity.                                    │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Contact       │ A person record — may be a lead, prospect, or established       │
+ │               │ customer.                                                       │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Account       │ An organizational entity (company) that groups Contacts under a │
+ │               │ shared commercial relationship.                                 │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Consent       │ A recorded agreement (or withdrawal) for a specific             │
+ │               │ data-processing purpose (e.g., email marketing).                │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Profile       │ The aggregate of identity attributes: name, email, phone,       │
+ │               │ address, preferences.                                           │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Lead          │ A Contact that has not yet been qualified as a sales            │
+ │               │ opportunity.                                                    │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Lifecycle     │ The current phase of the customer relationship: Lead →          │
+ │ Stage         │ Qualified → Opportunity → Customer → Advocate/Churned.          │
+ └───────────────┴─────────────────────────────────────────────────────────────────┘
+
+ Core Domain Objects:
+
+ - Aggregate: Customer (root)
+   - Entity: Customer — customerId, displayName, lifecycleStage, createdAt, source
+   - Entity: Contact — contactId, firstName, lastName, title, email (VO), phone (VO)
+   - Entity: Account — accountId, companyName, industry, size, billingAddress (VO)
+   - Value Object: EmailAddress — value (validated format), isPrimary, isVerified
+   - Value Object: PhoneNumber — value, countryCode, type (mobile/landline)
+   - Value Object: PostalAddress — street, city, state, postalCode, country
+   - Value Object: ConsentRecord — purpose, granted (bool), grantedAt, expiresAt,
+ source
+   - Value Object: CustomerScore — value (0–100), factors[], computedAt
+
+ Commands:
+
+ ┌──────────────────────┬──────────────────────────────────────────────────────────┐
+ │ Command              │ Description                                              │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ RegisterContact      │ Create a new Contact from inbound data (form, import,    │
+ │                      │ API).                                                    │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ QualifyLead          │ Promote a Lead to a Qualified Contact with a score       │
+ │                      │ threshold.                                               │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ MergeCustomers       │ Deduplicate two Customer records into one, resolving     │
+ │                      │ conflicts.                                               │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ UpdateConsent        │ Grant or revoke consent for a specific purpose.          │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ VerifyEmailAddress   │ Mark an email as verified after challenge/response.      │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ DeactivateCustomer   │ Soft-delete: mark customer as inactive, retain history.  │
+ ├──────────────────────┼──────────────────────────────────────────────────────────┤
+ │ ChangeLifecycleStage │ Transition a customer to a new lifecycle stage.          │
+ └──────────────────────┴──────────────────────────────────────────────────────────┘
+
+ Domain Events:
+
+ ┌───────────────────────┬──────────────────────┐
+ │ Event                 │ Triggered By         │
+ ├───────────────────────┼──────────────────────┤
+ │ CustomerRegistered    │ RegisterContact      │
+ ├───────────────────────┼──────────────────────┤
+ │ LeadQualified         │ QualifyLead          │
+ ├───────────────────────┼──────────────────────┤
+ │ CustomersMerged       │ MergeCustomers       │
+ ├───────────────────────┼──────────────────────┤
+ │ ConsentChanged        │ UpdateConsent        │
+ ├───────────────────────┼──────────────────────┤
+ │ EmailVerified         │ VerifyEmailAddress   │
+ ├───────────────────────┼──────────────────────┤
+ │ CustomerDeactivated   │ DeactivateCustomer   │
+ ├───────────────────────┼──────────────────────┤
+ │ LifecycleStageChanged │ ChangeLifecycleStage │
+ └───────────────────────┴──────────────────────┘
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### 2. Sales / Opportunity Pipeline
+
+ Responsibility: Manages the end-to-end sales process from qualified lead to closed
+ deal. Owns opportunities, quotes, products, and revenue forecasting. References
+ Customers by ID — never duplicates their data.
+
+ Ubiquitous Language:
+
+ ┌───────────────┬─────────────────────────────────────────────────────────────────┐
+ │ Term          │ Definition                                                      │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Opportunity   │ A qualified sales deal being pursued with a specific            │
+ │               │ Account/Contact.                                                │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Pipeline      │ The collection of all Opportunities grouped by Stage.           │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Stage         │ A named phase in the sales process: Prospecting → Discovery →   │
+ │               │ Proposal → Negotiation → Closed Won / Closed Lost.              │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Deal          │ Synonym for Opportunity in informal usage.                      │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Quote         │ A formal price proposal sent to a customer for an Opportunity.  │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Product       │ A sellable item or service with a price.                        │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Line Item     │ A Product + quantity + discount within a Quote or Opportunity.  │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Forecast      │ A projection of expected revenue based on Opportunity stages    │
+ │               │ and probabilities.                                              │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Win/Loss      │ Categorized explanation for why an opportunity was won or lost. │
+ │ Reason        │                                                                 │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Sales Rep     │ The internal user (owner) responsible for an Opportunity.       │
+ └───────────────┴─────────────────────────────────────────────────────────────────┘
+
+ Core Domain Objects:
+
+ - Aggregate: Opportunity (root)
+   - Entity: Opportunity — opportunityId, customerId (ref), accountId (ref), name,
+ stage, amount (VO), probability, expectedCloseDate, ownerId, createdAt
+   - Entity: Quote — quoteId, opportunityId, status (Draft/Sent/Accepted/Rejected),
+ lineItems[], validUntil, totalAmount (VO)
+   - Value Object: Money — amount (decimal), currency (ISO 4217)
+   - Value Object: LineItem — productId (ref), productName, quantity, unitPrice
+ (Money), discountPercent, totalPrice (Money)
+   - Value Object: StageDefinition — name, order, probability, isClosed, isWon
+   - Value Object: WinLossReason — category, detail
+ - Aggregate: ProductCatalog (root)
+   - Entity: Product — productId, name, description, unitPrice (Money), isActive,
+ category
+   - Value Object: ProductCategory — name, parentCategoryId?
+
+ Commands:
+
+ ┌───────────────────┬─────────────────────────────────────────────────────────────┐
+ │ Command           │ Description                                                 │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ CreateOpportunity │ Open a new Opportunity linked to a qualified                │
+ │                   │ Customer/Account.                                           │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ AdvanceStage      │ Move an Opportunity to the next Stage in the pipeline.      │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ CloseOpportunity  │ Mark as Closed Won or Closed Lost with a reason.            │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ GenerateQuote     │ Create a Quote with Line Items for an Opportunity.          │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ SendQuote         │ Mark a Quote as Sent and notify the customer.               │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ AcceptQuote       │ Customer accepts — triggers Opportunity advancement.        │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ UpdateForecast    │ Recalculate forecast based on current pipeline state.       │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ ReassignOwner     │ Change the Sales Rep responsible for an Opportunity.        │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ AddLineItem       │ Add a Product line to a Quote.                              │
+ └───────────────────┴─────────────────────────────────────────────────────────────┘
+
+ Domain Events:
+
+ ┌──────────────────────────┬───────────────────┐
+ │ Event                    │ Triggered By      │
+ ├──────────────────────────┼───────────────────┤
+ │ OpportunityCreated       │ CreateOpportunity │
+ ├──────────────────────────┼───────────────────┤
+ │ OpportunityStageAdvanced │ AdvanceStage      │
+ ├──────────────────────────┼───────────────────┤
+ │ OpportunityClosed        │ CloseOpportunity  │
+ ├──────────────────────────┼───────────────────┤
+ │ QuoteGenerated           │ GenerateQuote     │
+ ├──────────────────────────┼───────────────────┤
+ │ QuoteSent                │ SendQuote         │
+ ├──────────────────────────┼───────────────────┤
+ │ QuoteAccepted            │ AcceptQuote       │
+ ├──────────────────────────┼───────────────────┤
+ │ ForecastUpdated          │ UpdateForecast    │
+ ├──────────────────────────┼───────────────────┤
+ │ OwnerReassigned          │ ReassignOwner     │
+ └──────────────────────────┴───────────────────┘
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### 3. Support / Ticketing
+
+ Responsibility: Manages customer support interactions — ticket creation,
+ assignment, escalation, resolution, and SLA tracking. Owns the support lifecycle
+ end-to-end.
+
+ Ubiquitous Language:
+
+ ┌────────────┬────────────────────────────────────────────────────────────────────┐
+ │ Term       │ Definition                                                         │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Ticket     │ A single support request from a customer. The primary work unit.   │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Requester  │ The Contact who opened the ticket (reference to Customer ID).      │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Assignee   │ The support agent currently responsible for the ticket.            │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Queue      │ A prioritized list of unassigned or grouped tickets.               │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ SLA        │ Service Level Agreement — target response and resolution times by  │
+ │            │ priority.                                                          │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Priority   │ Urgency level: Low, Medium, High, Critical.                        │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Escalation │ The act of raising a ticket to a higher tier or manager when SLA   │
+ │            │ is at risk.                                                        │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Resolution │ The final answer or fix that closes a ticket.                      │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Macro      │ A pre-defined set of actions (reply template + field updates)      │
+ │            │ applied to a ticket.                                               │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ CSAT       │ Customer Satisfaction score collected on ticket closure.           │
+ └────────────┴────────────────────────────────────────────────────────────────────┘
+
+ Core Domain Objects:
+
+ - Aggregate: Ticket (root)
+   - Entity: Ticket — ticketId, requesterId (ref), assigneeId?, subject,
+ description, status (Open/Pending/Resolved/Closed), priority, queueId, createdAt,
+ updatedAt, resolvedAt, slaDeadline
+   - Entity: Comment — commentId, authorId, body, isInternal (bool), createdAt
+   - Entity: Attachment — attachmentId, fileName, mimeType, size, uploadedAt
+   - Value Object: SLAPolicy — priority, firstResponseTime (duration),
+ resolutionTime (duration), businessHoursOnly
+   - Value Object: SLAStatus — isBreached, breachTime?, timeRemaining?
+   - Value Object: CSATRating — score (1–5), comment?, submittedAt
+ - Aggregate: SupportQueue (root)
+   - Entity: Queue — queueId, name, assignedAgents[], autoAssignmentRules
+
+ Commands:
+
+ ┌────────────────┬────────────────────────────────────────────────────────────┐
+ │ Command        │ Description                                                │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ CreateTicket   │ Open a new support ticket from a customer request.         │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ AssignTicket   │ Assign a ticket to a specific agent or queue.              │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ AddComment     │ Add a public or internal comment to a ticket.              │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ ChangePriority │ Update the priority level (triggers SLA recalculation).    │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ EscalateTicket │ Escalate to a higher tier or manager.                      │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ ResolveTicket  │ Mark ticket as resolved with a resolution summary.         │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ CloseTicket    │ Finalize a resolved ticket; trigger CSAT survey.           │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ ReopenTicket   │ Reopen a closed ticket if the issue recurs.                │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ ApplyMacro     │ Apply a predefined macro (template + actions) to a ticket. │
+ ├────────────────┼────────────────────────────────────────────────────────────┤
+ │ SubmitCSAT     │ Record a customer satisfaction rating for a closed ticket. │
+ └────────────────┴────────────────────────────────────────────────────────────┘
+
+ Domain Events:
+
+ ┌───────────────────────┬─────────────────────────────────────┐
+ │ Event                 │ Triggered By                        │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketCreated         │ CreateTicket                        │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketAssigned        │ AssignTicket                        │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketCommentAdded    │ AddComment                          │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketPriorityChanged │ ChangePriority                      │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketEscalated       │ EscalateTicket                      │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketResolved        │ ResolveTicket                       │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketClosed          │ CloseTicket                         │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ TicketReopened        │ ReopenTicket                        │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ SLABreached           │ System-detected SLA deadline breach │
+ ├───────────────────────┼─────────────────────────────────────┤
+ │ CSATSubmitted         │ SubmitCSAT                          │
+ └───────────────────────┴─────────────────────────────────────┘
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### 4. Marketing / Campaigns
+
+ Responsibility: Plans, executes, and measures marketing campaigns. Manages audience
+ segmentation, campaign lifecycle, and engagement metrics. Consumes Customer IDs and
+ Consent from CIAM.
+
+ Ubiquitous Language:
+
+ ┌────────────┬────────────────────────────────────────────────────────────────────┐
+ │ Term       │ Definition                                                         │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Campaign   │ A coordinated marketing effort with a goal, audience, channel, and │
+ │            │ timeline.                                                          │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Audience   │ A segment of Customers targeted by a campaign, defined by          │
+ │            │ criteria.                                                          │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Segment    │ A filtered subset of the customer base based on attributes or      │
+ │            │ behavior.                                                          │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Channel    │ The delivery medium: Email, SMS, Push, Social, Direct Mail.        │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Content    │ The creative asset(s) delivered in a campaign (copy, images, CTA). │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Variant    │ A/B test variant of campaign content.                              │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Engagement │ A tracked interaction: open, click, bounce, unsubscribe.           │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Conversion │ A desired action completed by a campaign recipient (purchase,      │
+ │            │ signup).                                                           │
+ ├────────────┼────────────────────────────────────────────────────────────────────┤
+ │ Lead Score │ A numeric value indicating a lead's sales-readiness based on       │
+ │            │ engagement.                                                        │
+ └────────────┴────────────────────────────────────────────────────────────────────┘
+
+ Core Domain Objects:
+
+ - Aggregate: Campaign (root)
+   - Entity: Campaign — campaignId, name, objective, status
+ (Draft/Scheduled/Active/Paused/Completed), channel, audienceId, startDate, endDate,
+ budget (Money)
+   - Entity: ContentVariant — variantId, name (A/B label), subjectLine, body,
+ ctaText, isControl
+   - Entity: Engagement — engagementId, campaignId, customerId (ref), variantId?,
+ type (Open/Click/Bounce/Unsubscribe), occurredAt, metadata
+   - Value Object: AudienceCriteria — filters[] (field, operator, value),
+ estimatedReach
+   - Value Object: CampaignMetrics — sent, delivered, opened, clicked, bounced,
+ unsubscribed, conversions, revenue (Money)
+   - Value Object: ABTestConfig — variantIds[], splitPercentages[], winningMetric,
+ duration
+ - Aggregate: Segment (root)
+   - Entity: Segment — segmentId, name, criteria (AudienceCriteria), isDynamic
+ (bool), lastRefreshedAt, memberCount
+
+ Commands:
+
+ ┌───────────────────┬─────────────────────────────────────────────────────────────┐
+ │ Command           │ Description                                                 │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ CreateCampaign    │ Define a new campaign with objective, channel, and          │
+ │                   │ audience.                                                   │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ DefineAudience    │ Build a segment from customer criteria.                     │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ ScheduleCampaign  │ Set the send date/time for an approved campaign.            │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ LaunchCampaign    │ Activate a scheduled campaign — begin delivery.             │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ PauseCampaign     │ Temporarily halt an active campaign.                        │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ RecordEngagement  │ Log an engagement event from a channel webhook.             │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ DeclareConversion │ Record a conversion attributed to a campaign.               │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ SelectABWinner    │ Choose the winning variant and apply to remaining audience. │
+ ├───────────────────┼─────────────────────────────────────────────────────────────┤
+ │ CompleteCampaign  │ Finalize a campaign and compute final metrics.              │
+ └───────────────────┴─────────────────────────────────────────────────────────────┘
+
+ Domain Events:
+
+ ┌────────────────────┬───────────────────┐
+ │ Event              │ Triggered By      │
+ ├────────────────────┼───────────────────┤
+ │ CampaignCreated    │ CreateCampaign    │
+ ├────────────────────┼───────────────────┤
+ │ AudienceDefined    │ DefineAudience    │
+ ├────────────────────┼───────────────────┤
+ │ CampaignScheduled  │ ScheduleCampaign  │
+ ├────────────────────┼───────────────────┤
+ │ CampaignLaunched   │ LaunchCampaign    │
+ ├────────────────────┼───────────────────┤
+ │ CampaignPaused     │ PauseCampaign     │
+ ├────────────────────┼───────────────────┤
+ │ EngagementRecorded │ RecordEngagement  │
+ ├────────────────────┼───────────────────┤
+ │ ConversionDeclared │ DeclareConversion │
+ ├────────────────────┼───────────────────┤
+ │ ABWinnerSelected   │ SelectABWinner    │
+ ├────────────────────┼───────────────────┤
+ │ CampaignCompleted  │ CompleteCampaign  │
+ └────────────────────┴───────────────────┘
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### 5. Communication Hub
+
+ Responsibility: The cross-cutting context that orchestrates all outbound and
+ inbound communications across channels. Owns templates, delivery logs, and channel
+ adapters. Does not own customer data — references Customer IDs.
+
+ Ubiquitous Language:
+
+ ┌──────────┬─────────────────────────────────────────────────────────────────────┐
+ │ Term     │ Definition                                                          │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Message  │ A single communication unit sent to or received from a customer.    │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Template │ A reusable message blueprint with variable placeholders.            │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Channel  │ The transport: Email, SMS, Push Notification, In-App, WhatsApp.     │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Delivery │ The act and status of sending a message through a channel.          │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Thread   │ A conversation thread linking related messages (e.g., email chain). │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Opt-Out  │ A customer's request to stop receiving messages on a channel.       │
+ ├──────────┼─────────────────────────────────────────────────────────────────────┤
+ │ Digest   │ A batched summary of multiple items sent as one message.            │
+ └──────────┴─────────────────────────────────────────────────────────────────────┘
+
+ Core Domain Objects:
+
+ - Aggregate: Message (root)
+   - Entity: Message — messageId, customerId (ref), channel, direction
+ (Inbound/Outbound), subject?, body, status (Queued/Sent/Delivered/Failed/Read),
+ sentAt?, deliveredAt?, readAt?, threadId?
+   - Entity: DeliveryAttempt — attemptId, channel, status, errorCode?, attemptedAt
+   - Value Object: TemplateRef — templateId, variables (key-value map)
+   - Value Object: ChannelAddress — channel, address (email/phone/token)
+ - Aggregate: Template (root)
+   - Entity: Template — templateId, name, channel, subject?, body, variables[],
+ isActive
+
+ Commands:
+
+ ┌────────────────┬────────────────────────────────────────────────────────────────┐
+ │ Command        │ Description                                                    │
+ ├────────────────┼────────────────────────────────────────────────────────────────┤
+ │ SendMessage    │ Dispatch a message to a customer via a specific channel.       │
+ ├────────────────┼────────────────────────────────────────────────────────────────┤
+ │ CreateTemplate │ Define a new reusable message template.                        │
+ ├────────────────┼────────────────────────────────────────────────────────────────┤
+ │ RenderTemplate │ Merge a template with variable values to produce final         │
+ │                │ content.                                                       │
+ ├────────────────┼────────────────────────────────────────────────────────────────┤
+ │ RecordInbound  │ Process an incoming message from a customer (email reply,      │
+ │                │ SMS).                                                          │
+ ├────────────────┼────────────────────────────────────────────────────────────────┤
+ │ MarkOptOut     │ Record a customer's opt-out for a specific channel.            │
+ ├────────────────┼────────────────────────────────────────────────────────────────┤
+ │ RetryDelivery  │ Re-attempt delivery of a failed message.                       │
+ └────────────────┴────────────────────────────────────────────────────────────────┘
+
+ Domain Events:
+
+ ┌──────────────────┬───────────────────────────────┐
+ │ Event            │ Triggered By                  │
+ ├──────────────────┼───────────────────────────────┤
+ │ MessageSent      │ SendMessage                   │
+ ├──────────────────┼───────────────────────────────┤
+ │ MessageDelivered │ Channel delivery confirmation │
+ ├──────────────────┼───────────────────────────────┤
+ │ MessageFailed    │ SendMessage / RetryDelivery   │
+ ├──────────────────┼───────────────────────────────┤
+ │ MessageRead      │ Channel read-receipt          │
+ ├──────────────────┼───────────────────────────────┤
+ │ InboundReceived  │ RecordInbound                 │
+ ├──────────────────┼───────────────────────────────┤
+ │ OptOutRecorded   │ MarkOptOut                    │
+ └──────────────────┴───────────────────────────────┘
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### 6. Billing & Subscription
+
+ Responsibility: Manages pricing, subscriptions, invoicing, and payment processing.
+ Owns the financial relationship with the customer. References Customer and Product
+ IDs.
+
+ Ubiquitous Language:
+
+ ┌───────────────┬─────────────────────────────────────────────────────────────────┐
+ │ Term          │ Definition                                                      │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Subscription  │ A recurring billing agreement for a product/service.            │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Plan          │ A named pricing tier with features, limits, and recurring       │
+ │               │ price.                                                          │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Invoice       │ A bill issued to a customer for products/services rendered.     │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Payment       │ A monetary transaction settling an invoice or subscription      │
+ │               │ charge.                                                         │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Billing Cycle │ The recurring interval: monthly, quarterly, annual.             │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Proration     │ A partial-period charge when a subscription changes mid-cycle.  │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Credit Note   │ A refund or adjustment issued against an invoice.               │
+ ├───────────────┼─────────────────────────────────────────────────────────────────┤
+ │ Dunning       │ The process of retrying failed payments and notifying the       │
+ │               │ customer.                                                       │
+ └───────────────┴─────────────────────────────────────────────────────────────────┘
+
+ Core Domain Objects:
+
+ - Aggregate: Subscription (root)
+   - Entity: Subscription — subscriptionId, customerId (ref), planId (ref), status
+ (Active/PastDue/Cancelled/Trial), billingCycle, startDate, endDate?,
+ nextBillingDate, quantity
+   - Entity: Invoice — invoiceId, subscriptionId, customerId (ref), status
+ (Draft/Issued/Paid/Void/Overdue), lineItems[], subtotal (Money), tax (Money), total
+ (Money), issuedAt, dueDate, paidAt?
+   - Entity: Payment — paymentId, invoiceId, amount (Money), method
+ (Card/Bank/Wallet), status (Pending/Succeeded/Failed/Refunded), processedAt,
+ externalRef?
+   - Value Object: Plan — planId, name, billingCycle, price (Money), features[],
+ trialDays
+   - Value Object: ProrationRule — strategy (Prorate/FullCharge/NoCharge), anchor
+ (Immediate/NextCycle)
+   - Value Object: DunningState — attempt (1–4), nextRetryAt, lastNotificationAt
+
+ Commands:
+
+ ┌────────────────────┬────────────────────────────────────────────────────────────┐
+ │ Command            │ Description                                                │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ CreateSubscription │ Start a new subscription for a customer on a plan.         │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ ChangePlan         │ Upgrade/downgrade a subscription to a different plan.      │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ CancelSubscription │ End a subscription at the next billing date or             │
+ │                    │ immediately.                                               │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ GenerateInvoice    │ Create an invoice for the current billing period.          │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ IssueInvoice       │ Finalize and send an invoice to the customer.              │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ RecordPayment      │ Record a successful payment against an invoice.            │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ IssueCreditNote    │ Create a credit note for a refund or adjustment.           │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ RetryPayment       │ Retry a failed payment (dunning step).                     │
+ ├────────────────────┼────────────────────────────────────────────────────────────┤
+ │ StartTrial         │ Begin a trial period for a subscription.                   │
+ └────────────────────┴────────────────────────────────────────────────────────────┘
+
+ Domain Events:
+
+ ┌─────────────────────────┬───────────────────────────────────────┐
+ │ Event                   │ Triggered By                          │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ SubscriptionCreated     │ CreateSubscription                    │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ SubscriptionPlanChanged │ ChangePlan                            │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ SubscriptionCancelled   │ CancelSubscription                    │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ InvoiceGenerated        │ GenerateInvoice                       │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ InvoiceIssued           │ IssueInvoice                          │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ PaymentSucceeded        │ RecordPayment                         │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ PaymentFailed           │ RecordPayment                         │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ CreditNoteIssued        │ IssueCreditNote                       │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ TrialStarted            │ StartTrial                            │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ TrialExpiring           │ System-detected trial end approaching │
+ ├─────────────────────────┼───────────────────────────────────────┤
+ │ DunningEscalated        │ RetryPayment (each attempt)           │
+ └─────────────────────────┴───────────────────────────────────────┘
+
+ ────────────────────────────────────────────────────────────────────────────────
+
+ ### Context Map — Relationships & Integration
+
+ ```
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                        CRM SYSTEM                                   │
+   │                                                                     │
+   │  ┌──────────────────┐         ┌──────────────────┐                 │
+   │  │ Customer Identity │◄────────│  Sales Pipeline   │                 │
+   │  │   (CIAM)         │  CustID │                   │                 │
+   │  │   [Core Domain]  │────────►│  [Core Domain]    │                 │
+   │  │                  │ Lead    │                   │                 │
+   │  │  ─ Customer      │ Qualified│ ─ Opportunity    │                 │
+   │  │  ─ Account       │         │  ─ Quote          │                 │
+   │  │  ─ Consent       │         │                   │                 │
+   │  └──────┬───┬───┬───┘         └────────┬──────────┘                 │
+   │         │   │   │                      │                             │
+   │         │   │   │    ┌─────────────────┼──────────────┐             │
+   │         │   │   │    │                 │              │             │
+   │         │   │   ▼    ▼                 ▼              │             │
+   │         │   │ ┌──────────┐  ┌───────────────┐        │             │
+   │         │   │ │ Support  │  │  Marketing    │        │             │
+   │         │   │ │ Ticketing│  │  Campaigns    │        │             │
+   │         │   │ │          │  │               │        │             │
+   │         │   │ │─ Ticket  │  │─ Campaign     │        │             │
+   │         │   │ │─ SLA     │  │─ Segment      │        │             │
+   │         │   │ │─ CSAT    │  │─ Engagement   │        │             │
+   │         │   │ └────┬─────┘  └───────┬───────┘        │             │
+   │         │   │      │                │                │             │
+   │         │   │      │    ┌───────────┘                │             │
+   │         │   │      │    │                            │             │
+   │         │   ▼      ▼    ▼                            │             │
+   │         │ ┌──────────────────┐                       │             │
+   │         │ │  Communication   │                       │             │
+   │         │ │      Hub         │                       │             │
+   │         │ │  [Supporting]    │                       │             │
+   │         │ │                  │                       │             │
+   │         │ │ ─ Message        │                       │             │
+   │         │ │ ─ Template       │                       │             │
+   │         │ │ ─ Delivery       │                       │             │
+   │         │ └────────┬─────────┘                       │             │
+   │         │          │                                 │             │
+   │         ▼          ▼                                 ▼             │
+   │  ┌──────────────────────────────────┐                               │
+   │  │     Billing & Subscription       │                               │
+   │  │         [Core Domain]            │                               │
+   │  │                                  │                               │
+   │  │  ─ Subscription                  │                               │
+   │  │  ─ Invoice                       │                               │
+   │  │  ─ Payment                       │                               │
+   │  └──────────────────────────────────┘                               │
+   └─────────────────────────────────────────────────────────────────────┘
+ ```
+
+ Integration Patterns:
+
+ ┌───────────────────┬───────────────────┬─────────────────────────────────────────┐
+ │ Relationship      │ Pattern           │ Mechanism                               │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ CIAM → Sales      │ Customer/Supplier │ Sales depends on CIAM for customer      │
+ │                   │                   │ data. CIAM publishes LeadQualified;     │
+ │                   │                   │ Sales subscribes.                       │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ CIAM → Marketing  │ Conformist        │ Marketing reads CIAM data (with consent │
+ │                   │                   │ checks) to build segments. Must conform │
+ │                   │                   │ to CIAM's model.                        │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ CIAM → Support    │ Customer/Supplier │ Support references customerId. CIAM     │
+ │                   │                   │ publishes CustomerDeactivated; Support  │
+ │                   │                   │ suspends open tickets.                  │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ CIAM → Billing    │ Customer/Supplier │ Billing references customerId. CIAM     │
+ │                   │                   │ publishes CustomerDeactivated; Billing  │
+ │                   │                   │ cancels subscriptions.                  │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ CIAM →            │ Customer/Supplier │ Communication references customerId and │
+ │ Communication     │                   │ checks consent before sending.          │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ Sales → Billing   │ Event-driven      │ QuoteAccepted in Sales triggers         │
+ │                   │                   │ CreateSubscription or GenerateInvoice   │
+ │                   │                   │ in Billing.                             │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ Marketing →       │ Customer/Supplier │ Marketing campaigns invoke              │
+ │ Communication     │                   │ Communication Hub to deliver messages.  │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ Support →         │ Customer/Supplier │ Support ticket events trigger           │
+ │ Communication     │                   │ notifications via Communication Hub.    │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ Billing →         │ Customer/Supplier │ Invoice/payment events trigger          │
+ │ Communication     │                   │ notifications via Communication Hub.    │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ Communication →   │ Event-driven      │ OptOutRecorded in Communication updates │
+ │ CIAM              │                   │ consent in CIAM.                        │
+ ├───────────────────┼───────────────────┼─────────────────────────────────────────┤
+ │ Sales ←           │ Shared Kernel     │ Product definitions shared between      │
+ │ ProductCatalog    │                   │ Sales and Billing (price, SKU). Changes │
+ │                   │                   │ coordinated.                            │
+ └───────────────────┴───────────────────┴─────────────────────────────────────────┘
+
+ Key Design Decisions:
+
+ 1. CIAM is the system of record for all customer data. No other context stores
+ customer attributes — they hold only customerId references. This prevents data
+ divergence.
+ 2. Communication Hub is a Supporting Subdomain — it provides infrastructure, not
+ core business logic. It's a natural candidate for a shared service or even an
+ external provider (SendGrid, Twilio).
+ 3. Three Core Domains: CIAM, Sales Pipeline, and Billing/Subscription are the
+ primary revenue-generating contexts. Support, Marketing, and Communication are
+ Supporting/Generic.
+ 4. Domain Events are the primary integration mechanism — contexts remain loosely
+ coupled. No context directly mutates another's aggregates.
+ 5. Consent is owned by CIAM but enforced at the point of use (Marketing checks
+ consent before campaign delivery, Communication checks before sending).

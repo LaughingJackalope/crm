@@ -1,0 +1,1080 @@
+openapi: 3.1.0
+info:
+  title: Billing & Subscription API
+  description: |
+    Manages pricing, subscriptions, invoicing, and payment processing.
+    Owns the financial relationship with the customer.
+    References Customer and Product IDs.
+  version: 1.0.0
+  contact:
+    name: CRM Platform Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.crm.example.com/v1
+    description: Production
+  - url: https://staging-api.crm.example.com/v1
+    description: Staging
+
+tags:
+  - name: Subscriptions
+    description: Recurring billing agreements for products and services.
+  - name: Invoices
+    description: Bills issued to customers for products and services rendered.
+  - name: Payments
+    description: Monetary transactions settling invoices or subscription charges.
+  - name: Plans
+    description: Named pricing tiers with features, limits, and recurring prices.
+  - name: Dunning
+    description: Failed payment retry and escalation process.
+
+paths:
+  # ── Subscriptions ──────────────────────────────────────────────────────
+  /subscriptions:
+    get:
+      operationId: listSubscriptions
+      summary: List subscriptions
+      description: Retrieve a paginated list of subscriptions with optional filtering.
+      tags: [Subscriptions]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: customerId
+          in: query
+          description: Filter by customer reference.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/SubscriptionStatus'
+        - name: planId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, nextBillingDate, -nextBillingDate]
+            default: -createdAt
+      responses:
+        '200':
+          description: Paginated list of subscriptions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSubscriptions'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    post:
+      operationId: createSubscription
+      summary: Create a subscription
+      description: |
+        Start a new subscription for a customer on a plan.
+        Emits `SubscriptionCreated` domain event on success.
+      tags: [Subscriptions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionRequest'
+      responses:
+        '201':
+          description: Subscription created.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of the created subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /subscriptions/{subscriptionId}:
+    get:
+      operationId: getSubscription
+      summary: Get a subscription by ID
+      tags: [Subscriptions]
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIdParam'
+      responses:
+        '200':
+          description: Subscription details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /subscriptions/{subscriptionId}/change-plan:
+    post:
+      operationId: changePlan
+      summary: Change subscription plan
+      description: |
+        Upgrade/downgrade a subscription to a different plan.
+        Emits `SubscriptionPlanChanged` domain event.
+      tags: [Subscriptions]
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePlanRequest'
+      responses:
+        '200':
+          description: Plan changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /subscriptions/{subscriptionId}/cancel:
+    post:
+      operationId: cancelSubscription
+      summary: Cancel a subscription
+      description: |
+        End a subscription at the next billing date or immediately.
+        Emits `SubscriptionCancelled` domain event.
+      tags: [Subscriptions]
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /subscriptions/{subscriptionId}/start-trial:
+    post:
+      operationId: startTrial
+      summary: Start a trial
+      description: |
+        Begin a trial period for a subscription.
+        Emits `TrialStarted` domain event.
+      tags: [Subscriptions]
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartTrialRequest'
+      responses:
+        '200':
+          description: Trial started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /subscriptions/{subscriptionId}/invoices:
+    get:
+      operationId: listSubscriptionInvoices
+      summary: List invoices for a subscription
+      description: Retrieve a paginated list of invoices for a specific subscription.
+      tags: [Subscriptions]
+      parameters:
+        - $ref: '#/components/parameters/SubscriptionIdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Paginated list of invoices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInvoices'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Invoices ──────────────────────────────────────────────────────────
+  /invoices:
+    get:
+      operationId: listInvoices
+      summary: List invoices
+      description: Retrieve a paginated list of invoices with optional filtering.
+      tags: [Invoices]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: customerId
+          in: query
+          description: Filter by customer reference.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/InvoiceStatus'
+        - name: subscriptionId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, dueDate, -dueDate, total, -total]
+            default: -createdAt
+      responses:
+        '200':
+          description: Paginated list of invoices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInvoices'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    post:
+      operationId: generateInvoice
+      summary: Generate an invoice
+      description: |
+        Create an invoice for the current billing period.
+        Emits `InvoiceGenerated` domain event.
+      tags: [Invoices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateInvoiceRequest'
+      responses:
+        '201':
+          description: Invoice generated.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of the generated invoice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /invoices/{invoiceId}:
+    get:
+      operationId: getInvoice
+      summary: Get an invoice by ID
+      tags: [Invoices]
+      parameters:
+        - $ref: '#/components/parameters/InvoiceIdParam'
+      responses:
+        '200':
+          description: Invoice details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices/{invoiceId}/issue:
+    post:
+      operationId: issueInvoice
+      summary: Issue an invoice
+      description: |
+        Finalize and send an invoice to the customer.
+        Emits `InvoiceIssued` domain event.
+      tags: [Invoices]
+      parameters:
+        - $ref: '#/components/parameters/InvoiceIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Invoice issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /invoices/{invoiceId}/payments:
+    get:
+      operationId: listPayments
+      summary: List payments for an invoice
+      description: Retrieve all payments against a specific invoice.
+      tags: [Payments]
+      parameters:
+        - $ref: '#/components/parameters/InvoiceIdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Paginated list of payments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPayments'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      operationId: recordPayment
+      summary: Record a payment
+      description: |
+        Record a successful payment against an invoice.
+        Emits `PaymentSucceeded` or `PaymentFailed` domain event.
+      tags: [Payments]
+      parameters:
+        - $ref: '#/components/parameters/InvoiceIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentRequest'
+      responses:
+        '201':
+          description: Payment recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /invoices/{invoiceId}/credit-notes:
+    post:
+      operationId: issueCreditNote
+      summary: Issue a credit note
+      description: |
+        Create a credit note for a refund or adjustment.
+        Emits `CreditNoteIssued` domain event.
+      tags: [Invoices]
+      parameters:
+        - $ref: '#/components/parameters/InvoiceIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCreditNoteRequest'
+      responses:
+        '201':
+          description: Credit note issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNoteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ── Plans ─────────────────────────────────────────────────────────────
+  /plans:
+    get:
+      operationId: listPlans
+      summary: List plans
+      description: Retrieve all available pricing plans.
+      tags: [Plans]
+      responses:
+        '200':
+          description: List of plans.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlanResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /plans/{planId}:
+    get:
+      operationId: getPlan
+      summary: Get a plan by ID
+      tags: [Plans]
+      parameters:
+        - $ref: '#/components/parameters/PlanIdParam'
+      responses:
+        '200':
+          description: Plan details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Payments ──────────────────────────────────────────────────────────
+  /payments/{paymentId}/retry:
+    post:
+      operationId: retryPayment
+      summary: Retry a payment
+      description: |
+        Retry a failed payment (dunning step).
+        Emits `DunningEscalated` domain event.
+      tags: [Dunning]
+      parameters:
+        - $ref: '#/components/parameters/PaymentIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Payment retry initiated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+components:
+  # ── Parameters ────────────────────────────────────────────────────────
+  parameters:
+    SubscriptionIdParam:
+      name: subscriptionId
+      in: path
+      required: true
+      description: Unique identifier of the subscription.
+      schema:
+        type: string
+        format: uuid
+
+    InvoiceIdParam:
+      name: invoiceId
+      in: path
+      required: true
+      description: Unique identifier of the invoice.
+      schema:
+        type: string
+        format: uuid
+
+    PlanIdParam:
+      name: planId
+      in: path
+      required: true
+      description: Unique identifier of the plan.
+      schema:
+        type: string
+        format: uuid
+
+    PaymentIdParam:
+      name: paymentId
+      in: path
+      required: true
+      description: Unique identifier of the payment.
+      schema:
+        type: string
+        format: uuid
+
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-indexed).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+
+  # ── Schemas ───────────────────────────────────────────────────────────
+  schemas:
+    # Enums
+    SubscriptionStatus:
+      type: string
+      enum: [Active, PastDue, Cancelled, Trial]
+      description: Current state of the subscription.
+
+    BillingCycle:
+      type: string
+      enum: [Monthly, Quarterly, Annual]
+      description: The recurring billing interval.
+
+    InvoiceStatus:
+      type: string
+      enum: [Draft, Issued, Paid, Void, Overdue]
+      description: Current state of the invoice.
+
+    PaymentMethod:
+      type: string
+      enum: [Card, Bank, Wallet]
+      description: Payment instrument type.
+
+    PaymentStatus:
+      type: string
+      enum: [Pending, Succeeded, Failed, Refunded]
+      description: Current state of the payment.
+
+    # Value Objects
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0
+          description: Monetary amount with 2 decimal precision.
+          example: 1299.99
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 currency code.
+          example: "USD"
+
+    ProrationRule:
+      type: object
+      required: [strategy, anchor]
+      properties:
+        strategy:
+          type: string
+          enum: [Prorate, FullCharge, NoCharge]
+          description: How to handle partial-period charges.
+        anchor:
+          type: string
+          enum: [Immediate, NextCycle]
+          description: When the change takes effect.
+
+    DunningState:
+      type: object
+      required: [attempt]
+      properties:
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: Current dunning attempt number.
+        nextRetryAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the next retry will be attempted.
+        lastNotificationAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the last customer notification was sent.
+
+    InvoiceLineItem:
+      type: object
+      required: [description, quantity, unitPrice, totalPrice]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+        quantity:
+          type: integer
+          minimum: 1
+        unitPrice:
+          $ref: '#/components/schemas/Money'
+        totalPrice:
+          $ref: '#/components/schemas/Money'
+
+    # Request Bodies
+    CreateSubscriptionRequest:
+      type: object
+      required: [customerId, planId, billingCycle]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        planId:
+          type: string
+          format: uuid
+          description: Reference to the plan.
+        billingCycle:
+          $ref: '#/components/schemas/BillingCycle'
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+        startDate:
+          type: string
+          format: date
+          description: Start date. Defaults to today if omitted.
+
+    ChangePlanRequest:
+      type: object
+      required: [newPlanId]
+      properties:
+        newPlanId:
+          type: string
+          format: uuid
+          description: Reference to the new plan.
+        prorationStrategy:
+          $ref: '#/components/schemas/ProrationRule'
+
+    CancelSubscriptionRequest:
+      type: object
+      required: [cancelAt]
+      properties:
+        cancelAt:
+          type: string
+          enum: [immediately, nextCycle]
+          description: When to cancel the subscription.
+        reason:
+          type: string
+          maxLength: 1000
+
+    StartTrialRequest:
+      type: object
+      required: [trialDays]
+      properties:
+        trialDays:
+          type: integer
+          minimum: 1
+          maximum: 90
+
+    GenerateInvoiceRequest:
+      type: object
+      required: [subscriptionId]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+          description: Reference to the subscription.
+
+    RecordPaymentRequest:
+      type: object
+      required: [amount, method]
+      properties:
+        amount:
+          $ref: '#/components/schemas/Money'
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        externalRef:
+          type: string
+          maxLength: 500
+          description: External payment processor reference.
+
+    IssueCreditNoteRequest:
+      type: object
+      required: [amount, reason]
+      properties:
+        amount:
+          $ref: '#/components/schemas/Money'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
+    # Response Bodies
+    SubscriptionResponse:
+      type: object
+      required: [subscriptionId, customerId, planId, status, billingCycle, startDate, nextBillingDate, quantity, createdAt, updatedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        planId:
+          type: string
+          format: uuid
+          description: Reference to the plan.
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        billingCycle:
+          $ref: '#/components/schemas/BillingCycle'
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        nextBillingDate:
+          type: string
+          format: date
+        quantity:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    InvoiceResponse:
+      type: object
+      required: [invoiceId, subscriptionId, customerId, status, lineItems, subtotal, tax, total, dueDate]
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        lineItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceLineItem'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        tax:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+        issuedAt:
+          type: string
+          format: date-time
+          nullable: true
+        dueDate:
+          type: string
+          format: date
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    PaymentResponse:
+      type: object
+      required: [paymentId, invoiceId, amount, method, status]
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        processedAt:
+          type: string
+          format: date-time
+          nullable: true
+        externalRef:
+          type: string
+          nullable: true
+          maxLength: 500
+
+    PlanResponse:
+      type: object
+      required: [planId, name, billingCycle, price]
+      properties:
+        planId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        billingCycle:
+          $ref: '#/components/schemas/BillingCycle'
+        price:
+          $ref: '#/components/schemas/Money'
+        features:
+          type: array
+          items:
+            type: string
+        trialDays:
+          type: integer
+          minimum: 0
+
+    CreditNoteResponse:
+      type: object
+      required: [creditNoteId, invoiceId, amount, reason, issuedAt]
+      properties:
+        creditNoteId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        reason:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+
+    PaginatedSubscriptions:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    PaginatedInvoices:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    PaginatedPayments:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    # Error Models
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error description.
+        target:
+          type: string
+          description: The field or parameter that caused the error.
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              message:
+                type: string
+              target:
+                type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+  # ── Responses ─────────────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: Invalid request — malformed parameters or body.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "invalid_request"
+              message: "Request validation failed."
+              details:
+                - code: "invalid_format"
+                  message: "Field 'billingCycle' must be one of: Monthly, Quarterly, Annual."
+                  target: "billingCycle"
+
+    Unauthorized:
+      description: Authentication required or invalid credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unauthorized"
+              message: "Valid authentication credentials are required."
+
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "not_found"
+              message: "Subscription not found."
+              target: "subscriptionId"
+
+    Conflict:
+      description: Resource conflict — invalid state transition or concurrent modification.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "conflict"
+              message: "Subscription is already cancelled."
+
+    UnprocessableEntity:
+      description: Request is well-formed but violates business rules.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unprocessable"
+              message: "Cannot start trial: subscription already has a trial period."
+
+  # ── Security ──────────────────────────────────────────────────────────
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token issued by the CIAM auth service.
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication.
+
+security:
+  - bearerAuth: []

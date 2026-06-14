@@ -1,0 +1,23 @@
+# Project exclude paths
+/.gradle/
+/build/
+/buildSrc/.gradle/
+/buildSrc/build/
+/buildSrc/build/classes/kotlin/main/
+/libs/common/build/
+/libs/common/build/classes/kotlin/main/
+/libs/contracts/async-api/build/
+/libs/contracts/open-api/build/
+/libs/contracts/open-api/build/classes/kotlin/main/
+/services/billing-service/build/
+/services/billing-service/build/classes/kotlin/main/
+/services/ciam-service/build/
+/services/ciam-service/build/classes/kotlin/main/
+/services/communication-service/build/
+/services/communication-service/build/classes/kotlin/main/
+/services/marketing-service/build/
+/services/marketing-service/build/classes/kotlin/main/
+/services/sales-service/build/
+/services/sales-service/build/classes/kotlin/main/
+/services/support-service/build/
+/services/support-service/build/classes/kotlin/main/

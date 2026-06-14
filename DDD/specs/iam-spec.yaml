@@ -1,0 +1,472 @@
+# Identity & Access Management Specification
+# JWT + RBAC with Context-Level Scopes
+# Version: 1.0.0
+
+meta:
+  model: RBAC with context-level scopes
+  token_format: JWT (RS256, RSA-256 signed)
+  claims_style: Keycloak-compatible nested structure
+  rationale: |
+    RBAC with context-level scopes maps cleanly to business roles
+    (sales_rep, support_agent, marketer, billing_manager). The nested
+    claims structure follows Keycloak conventions for compatibility with
+    standard OIDC providers. Scopes encode both the BC and the action,
+    enabling fine-grained access control without per-resource authorization
+    logic in most cases.
+
+# ═══════════════════════════════════════════════════════════════════════
+# JWT Token Structure
+# ═══════════════════════════════════════════════════════════════════════
+jwt:
+  algorithm: RS256
+  issuer: "https://auth.crm.example.com/realms/crm"
+  audience: "crm-api"
+  expiry:
+    access_token: 900  # 15 minutes
+    refresh_token: 86400  # 24 hours
+
+  # ── Flat Claims (top-level) ──────────────────────────────────────
+  flat_claims:
+    sub:
+      type: string (UUID)
+      description: Unique user ID (CIAM contact_id).
+    iss:
+      type: string
+      description: Token issuer URL.
+    aud:
+      type: string
+      description: Intended audience ("crm-api").
+    exp:
+      type: integer
+      description: Expiration time (Unix timestamp).
+    iat:
+      type: integer
+      description: Issued at (Unix timestamp).
+    jti:
+      type: string (UUID)
+      description: Unique token ID for revocation tracking.
+    org_id:
+      type: string (UUID)
+      description: Organization/tenant ID for multi-tenant isolation.
+
+  # ── Nested Claims (Keycloak-style) ───────────────────────────────
+  nested_claims:
+    realm_access:
+      type: object
+      description: Realm-level roles (global, cross-context).
+      structure:
+        roles:
+          type: array of string
+          examples:
+            - "admin"
+            - "viewer"
+
+    resource_access:
+      type: object
+      description: Per-resource (per-BC) role assignments.
+      structure:
+        "{bounded_context}":
+          type: object
+          structure:
+            roles:
+              type: array of string
+              description: Roles scoped to this BC.
+      examples:
+        sales:
+          roles: ["sales_rep", "sales_manager"]
+        support:
+          roles: ["support_agent"]
+        billing:
+          roles: []
+
+    scope:
+      type: string
+      description: |
+        Space-separated list of granted scopes. Derived from roles at
+        token issuance time. Used by API gateways and services for
+        authorization decisions.
+      example: "ciam:read ciam:write sales:read sales:write support:read"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Roles & Scope Derivation
+# ═══════════════════════════════════════════════════════════════════════
+roles:
+  definition: |
+    Roles are assigned per-BC via resource_access.{bc}.roles. Each role
+    maps to a set of scopes. The authorization middleware expands roles
+    into scopes at token issuance time. Services check scopes, not roles.
+
+  role_catalog:
+
+    # ── Global Roles ────────────────────────────────────────────────
+    admin:
+      realm_access: true
+      description: Full access to all BCs. Platform administrators.
+      scopes:
+        - "ciam:read"
+        - "ciam:write"
+        - "ciam:delete"
+        - "sales:read"
+        - "sales:write"
+        - "sales:delete"
+        - "support:read"
+        - "support:write"
+        - "support:delete"
+        - "marketing:read"
+        - "marketing:write"
+        - "marketing:delete"
+        - "communication:read"
+        - "communication:write"
+        - "communication:delete"
+        - "billing:read"
+        - "billing:write"
+        - "billing:delete"
+
+    viewer:
+      realm_access: true
+      description: Read-only access across all BCs. Auditors, analysts.
+      scopes:
+        - "ciam:read"
+        - "sales:read"
+        - "support:read"
+        - "marketing:read"
+        - "communication:read"
+        - "billing:read"
+
+    # ── CIAM Roles ──────────────────────────────────────────────────
+    identity_admin:
+      bc: ciam
+      description: Full customer identity management.
+      scopes:
+        - "ciam:read"
+        - "ciam:write"
+        - "ciam:delete"
+
+    identity_reader:
+      bc: ciam
+      description: Read-only access to customer records.
+      scopes:
+        - "ciam:read"
+
+    # ── Sales Roles ─────────────────────────────────────────────────
+    sales_manager:
+      bc: sales
+      description: Full sales pipeline access + team management.
+      scopes:
+        - "sales:read"
+        - "sales:write"
+        - "sales:delete"
+
+    sales_rep:
+      bc: sales
+      description: Manage own opportunities and quotes.
+      scopes:
+        - "sales:read"
+        - "sales:write"
+      notes: |
+        Write access is restricted to opportunities where owner_id = sub.
+        Enforced by application-level authorization (resource ownership).
+
+    # ── Support Roles ───────────────────────────────────────────────
+    support_manager:
+      bc: support
+      description: Full ticket management + queue administration.
+      scopes:
+        - "support:read"
+        - "support:write"
+        - "support:delete"
+
+    support_agent:
+      bc: support
+      description: Manage assigned tickets and add comments.
+      scopes:
+        - "support:read"
+        - "support:write"
+      notes: |
+        Write access restricted to tickets where assignee_id = sub or
+        tickets in queues where the agent is a member.
+
+    # ── Marketing Roles ─────────────────────────────────────────────
+    marketing_manager:
+      bc: marketing
+      description: Full campaign and segment management.
+      scopes:
+        - "marketing:read"
+        - "marketing:write"
+        - "marketing:delete"
+
+    marketing_analyst:
+      bc: marketing
+      description: Read campaign data and metrics.
+      scopes:
+        - "marketing:read"
+
+    # ── Communication Roles ─────────────────────────────────────────
+    communication_manager:
+      bc: communication
+      description: Full message and template management.
+      scopes:
+        - "communication:read"
+        - "communication:write"
+        - "communication:delete"
+
+    communication_operator:
+      bc: communication
+      description: Send messages and manage templates.
+      scopes:
+        - "communication:read"
+        - "communication:write"
+
+    # ── Billing Roles ───────────────────────────────────────────────
+    billing_manager:
+      bc: billing
+      description: Full subscription, invoice, and payment management.
+      scopes:
+        - "billing:read"
+        - "billing:write"
+        - "billing:delete"
+
+    billing_clerk:
+      bc: billing
+      description: View and record payments, issue credit notes.
+      scopes:
+        - "billing:read"
+        - "billing:write"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Scope-to-Endpoint Mapping
+# ═════════════════════════════════════════════════════════════════════
+scope_mapping:
+  description: |
+    Each scope grants access to a class of operations within a BC.
+    The format is "{bounded_context}:{action}". Actions: read, write, delete.
+
+  ciam:
+    "ciam:read":
+      - GET /contacts
+      - GET /contacts/{contactId}
+      - GET /contacts/{contactId}/consents
+      - GET /contacts/{contactId}/score
+      - GET /accounts
+      - GET /accounts/{accountId}
+      - GET /accounts/{accountId}/contacts
+    "ciam:write":
+      - POST /contacts
+      - PATCH /contacts/{contactId}
+      - POST /contacts/{contactId}/verify-email
+      - PUT /contacts/{contactId}/consents
+      - POST /contacts/{contactId}/lifecycle
+      - POST /contacts/{contactId}/qualify
+      - POST /accounts
+      - PATCH /accounts/{accountId}
+    "ciam:delete":
+      - DELETE /contacts/{contactId}
+      - DELETE /contacts/{contactId}/consents/{purpose}
+      - POST /contacts/merge
+
+  sales:
+    "sales:read":
+      - GET /opportunities
+      - GET /opportunities/{opportunityId}
+      - GET /opportunities/{opportunityId}/quotes
+      - GET /quotes/{quoteId}
+      - GET /products
+      - GET /products/{productId}
+      - GET /forecast
+    "sales:write":
+      - POST /opportunities
+      - PATCH /opportunities/{opportunityId}
+      - POST /opportunities/{opportunityId}/advance-stage
+      - POST /opportunities/{opportunityId}/close
+      - POST /opportunities/{opportunityId}/reassign
+      - POST /opportunities/{opportunityId}/quotes
+      - POST /quotes/{quoteId}/send
+      - POST /quotes/{quoteId}/accept
+      - POST /products
+      - PATCH /products/{productId}
+    "sales:delete":
+      - (admin-only: force-delete opportunities)
+
+  support:
+    "support:read":
+      - GET /tickets
+      - GET /tickets/{ticketId}
+      - GET /tickets/{ticketId}/comments
+      - GET /queues
+      - GET /queues/{queueId}
+      - GET /queues/{queueId}/tickets
+    "support:write":
+      - POST /tickets
+      - PATCH /tickets/{ticketId}
+      - POST /tickets/{ticketId}/assign
+      - POST /tickets/{ticketId}/comments
+      - POST /tickets/{ticketId}/change-priority
+      - POST /tickets/{ticketId}/escalate
+      - POST /tickets/{ticketId}/resolve
+      - POST /tickets/{ticketId}/close
+      - POST /tickets/{ticketId}/reopen
+      - POST /tickets/{ticketId}/apply-macro
+      - POST /tickets/{ticketId}/csat
+    "support:delete":
+      - (admin-only: purge tickets)
+
+  marketing:
+    "marketing:read":
+      - GET /campaigns
+      - GET /campaigns/{campaignId}
+      - GET /campaigns/{campaignId}/metrics
+      - GET /segments
+      - GET /segments/{segmentId}
+    "marketing:write":
+      - POST /campaigns
+      - PATCH /campaigns/{campaignId}
+      - POST /campaigns/{campaignId}/schedule
+      - POST /campaigns/{campaignId}/launch
+      - POST /campaigns/{campaignId}/pause
+      - POST /campaigns/{campaignId}/complete
+      - POST /campaigns/{campaignId}/engagements
+      - POST /campaigns/{campaignId}/conversions
+      - POST /campaigns/{campaignId}/ab-test/select-winner
+      - POST /segments
+      - POST /segments/{segmentId}/refresh
+    "marketing:delete":
+      - (admin-only: delete campaigns/segments)
+
+  communication:
+    "communication:read":
+      - GET /messages
+      - GET /messages/{messageId}
+      - GET /templates
+      - GET /templates/{templateId}
+    "communication:write":
+      - POST /messages
+      - POST /messages/{messageId}/retry
+      - POST /messages/inbound
+      - POST /templates
+      - PATCH /templates/{templateId}
+      - POST /templates/{templateId}/render
+      - POST /opt-out
+    "communication:delete":
+      - (admin-only: purge messages/templates)
+
+  billing:
+    "billing:read":
+      - GET /subscriptions
+      - GET /subscriptions/{subscriptionId}
+      - GET /subscriptions/{subscriptionId}/invoices
+      - GET /invoices
+      - GET /invoices/{invoiceId}
+      - GET /invoices/{invoiceId}/payments
+      - GET /plans
+      - GET /plans/{planId}
+    "billing:write":
+      - POST /subscriptions
+      - POST /subscriptions/{subscriptionId}/change-plan
+      - POST /subscriptions/{subscriptionId}/cancel
+      - POST /subscriptions/{subscriptionId}/start-trial
+      - POST /invoices
+      - POST /invoices/{invoiceId}/issue
+      - POST /invoices/{invoiceId}/payments
+      - POST /invoices/{invoiceId}/credit-notes
+      - POST /payments/{paymentId}/retry
+    "billing:delete":
+      - (admin-only: void invoices, force-cancel subscriptions)
+
+# ═══════════════════════════════════════════════════════════════════════
+# Access Matrix — Role × BC Quick Reference
+# ═══════════════════════════════════════════════════════════════════════
+access_matrix:
+  description: |
+    Quick-reference matrix showing which roles can access which BCs.
+    R = read, W = write, D = delete, — = no access.
+
+  matrix:
+    admin:          { ciam: RWD, sales: RWD, support: RWD, marketing: RWD, communication: RWD, billing: RWD }
+    viewer:         { ciam: R,   sales: R,   support: R,   marketing: R,   communication: R,   billing: R }
+    identity_admin: { ciam: RWD, sales: —,   support: —,   marketing: —,   communication: —,   billing: — }
+    identity_reader:{ ciam: R,   sales: —,   support: —,   marketing: —,   communication: —,   billing: — }
+    sales_manager:  { ciam: R,   sales: RWD, support: —,   marketing: —,   communication: —,   billing: — }
+    sales_rep:      { ciam: R,   sales: RW,  support: —,   marketing: —,   communication: —,   billing: — }
+    support_manager:{ ciam: R,   sales: —,   support: RWD, marketing: —,   communication: —,   billing: — }
+    support_agent:  { ciam: R,   sales: —,   support: RW,  marketing: —,   communication: —,   billing: — }
+    marketing_manager:     { ciam: R, sales: —, support: —, marketing: RWD, communication: —, billing: — }
+    marketing_analyst:     { ciam: R, sales: —, support: —, marketing: R,    communication: —, billing: — }
+    communication_manager: { ciam: R, sales: —, support: —, marketing: —,    communication: RWD, billing: — }
+    communication_operator:{ ciam: R, sales: —, support: —, marketing: —,    communication: RW,  billing: — }
+    billing_manager:{ ciam: R,   sales: —,   support: —,   marketing: —,   communication: —,   billing: RWD }
+    billing_clerk:  { ciam: R,   sales: —,   support: —,   marketing: —,   communication: —,   billing: RW }
+
+# ═══════════════════════════════════════════════════════════════════════
+# Event Stream Authorization
+# ═══════════════════════════════════════════════════════════════════════
+event_authorization:
+  description: |
+    Kafka consumer group access is also governed by RBAC. A service
+    instance authenticates to Kafka using its service account, and the
+    Kafka ACLs restrict which topics it can read/write.
+
+  producer_acls:
+    pattern: "crm.{bc}.*"
+    rules:
+      - bc: ciam
+        allowed_roles: [admin, identity_admin]
+        topics: ["crm.ciam.*"]
+      - bc: sales
+        allowed_roles: [admin, sales_manager]
+        topics: ["crm.sales.*"]
+      - bc: support
+        allowed_roles: [admin, support_manager]
+        topics: ["crm.support.*"]
+      - bc: marketing
+        allowed_roles: [admin, marketing_manager]
+        topics: ["crm.marketing.*"]
+      - bc: communication
+        allowed_roles: [admin, communication_manager]
+        topics: ["crm.communication.*"]
+      - bc: billing
+        allowed_roles: [admin, billing_manager]
+        topics: ["crm.billing.*"]
+
+  consumer_acls:
+    pattern: "crm.{bc}.*"
+    rules:
+      - consumer_group: "cache-invalidator-{bc}"
+        allowed_roles: [admin, "{bc}_manager", "{bc}_agent"]
+        topics: ["crm.*"]  # All BCs consume for cache invalidation
+      - consumer_group: "billing.subscription-creation"
+        allowed_roles: [admin, billing_manager]
+        topics: ["crm.sales.quote.accepted", "crm.sales.opportunity.closed"]
+      - consumer_group: "support.ticket-notifications"
+        allowed_roles: [admin, support_manager]
+        topics: ["crm.support.*"]
+      - consumer_group: "marketing.engagement-tracking"
+        allowed_roles: [admin, marketing_manager]
+        topics: ["crm.communication.message.*"]
+      - consumer_group: "communication.delivery-orchestrator"
+        allowed_roles: [admin, communication_manager]
+        topics: ["crm.marketing.campaign.*", "crm.support.ticket.*", "crm.billing.invoice.*", "crm.billing.payment.*"]
+
+# ═══════════════════════════════════════════════════════════════════════
+# Token Validation Flow
+# ═══════════════════════════════════════════════════════════════════════
+validation:
+  steps:
+    1_extract: "Extract Bearer token from Authorization header"
+    2_verify_signature: "Verify RS256 signature using JWKS endpoint"
+    3_check_expiry: "Verify exp > now"
+    4_check_issuer: "Verify iss matches expected issuer"
+    5_check_audience: "Verify aud includes 'crm-api'"
+    6_extract_scopes: "Flatten resource_access.*.roles into scope list"
+    7_check_scope: "Verify required scope for the requested endpoint"
+    8_resource_ownership: |
+      For write/delete on specific resources, verify resource ownership
+      (e.g., opportunity.owner_id == sub) in application logic.
+
+  jwks:
+    url: "https://auth.crm.example.com/realms/crm/protocol/openid-connect/certs"
+    cache_ttl: 3600  # Refresh JWKS hourly
+
+  caching: |
+    API gateway caches validated tokens for 60s to avoid re-validation
+    on every request. Token revocation is handled via short expiry (15min)
+    + refresh token rotation.

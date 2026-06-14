@@ -1,0 +1,669 @@
+# Data Storage & Persistence Specification
+# Database-per-Service with PostgreSQL
+# Version: 1.0.0
+
+meta:
+  standard: Database-per-Service
+  engine: PostgreSQL 16+
+  rationale: |
+    Each Bounded Context owns its own PostgreSQL database, running on the
+    same engine for operational simplicity. Separate databases enforce
+    DDD boundaries — no cross-BC SQL queries, shared tables, or JOINs.
+    Communication happens exclusively through domain events (Kafka) and
+    synchronous APIs (REST). JSONB columns are used where flexible
+    schema is needed (e.g., metadata, event payloads).
+
+  rules:
+    - "Each BC has exactly one PostgreSQL database, named crm_{context}"
+    - "Cross-BC data access is forbidden at the persistence layer"
+    - "Foreign keys NEVER reference another BC's database"
+    - "Inter-BC references use UUID columns (no FK constraints)"
+    - "All tables include created_at and updated_at timestamps"
+    - "Soft deletes use deleted_at (nullable timestamp), not hard deletes"
+    - "Migration files are owned by the BC team, versioned per-database"
+
+databases:
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # CIAM — Customer Identity & Access Management
+  # Database: crm_ciam
+  # ═══════════════════════════════════════════════════════════════════════
+  ciam:
+    description: |
+      System of record for all person and organization data. Other
+      contexts reference customers by customer_id but never store
+      customer attributes.
+
+    aggregates:
+
+      Customer:
+        table: customers
+        description: Root identity aggregate — a person or organization.
+        columns:
+          - { name: customer_id, type: UUID, pk: true }
+          - { name: display_name, type: VARCHAR(300), nullable: true }
+          - { name: lifecycle_stage, type: VARCHAR(20), not_null: true, default: "'lead'" }
+          - { name: source, type: VARCHAR(100), nullable: true }
+          - { name: score, type: SMALLINT, nullable: true }
+          - { name: is_active, type: BOOLEAN, not_null: true, default: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: deleted_at, type: TIMESTAMPTZ, nullable: true }
+        indexes:
+          - "CREATE INDEX idx_customers_lifecycle ON customers (lifecycle_stage) WHERE deleted_at IS NULL"
+          - "CREATE INDEX idx_customers_score ON customers (score DESC) WHERE deleted_at IS NULL"
+        notes: |
+          Lifecycle stages: lead, qualified, opportunity, customer, advocate, churned.
+          Score is 0-100, recomputed asynchronously from events.
+
+      Contact:
+        table: contacts
+        description: A person record — lead, prospect, or established customer.
+        columns:
+          - { name: contact_id, type: UUID, pk: true }
+          - { name: customer_id, type: UUID, not_null: true, ref: "customers.customer_id" }
+          - { name: first_name, type: VARCHAR(100), not_null: true }
+          - { name: last_name, type: VARCHAR(100), not_null: true }
+          - { name: title, type: VARCHAR(200), nullable: true }
+          - { name: is_verified, type: BOOLEAN, not_null: true, default: false }
+          - { name: is_primary, type: BOOLEAN, not_null: true, default: false }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: deleted_at, type: TIMESTAMPTZ, nullable: true }
+        indexes:
+          - "CREATE INDEX idx_contacts_customer ON contacts (customer_id) WHERE deleted_at IS NULL"
+          - "CREATE UNIQUE INDEX idx_contacts_primary ON contacts (customer_id) WHERE is_primary = true AND deleted_at IS NULL"
+
+      ContactEmail:
+        table: contact_emails
+        description: Email addresses for a contact (1-to-many).
+        columns:
+          - { name: email_id, type: UUID, pk: true }
+          - { name: contact_id, type: UUID, not_null: true, ref: "contacts.contact_id" }
+          - { name: email, type: VARCHAR(320), not_null: true }
+          - { name: is_primary, type: BOOLEAN, not_null: true, default: false }
+          - { name: is_verified, type: BOOLEAN, not_null: true, default: false }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE UNIQUE INDEX idx_contact_emails_primary ON contact_emails (contact_id) WHERE is_primary = true"
+          - "CREATE INDEX idx_contact_emails_email ON contact_emails (LOWER(email))"
+
+      ContactPhone:
+        table: contact_phones
+        description: Phone numbers for a contact (1-to-many).
+        columns:
+          - { name: phone_id, type: UUID, pk: true }
+          - { name: contact_id, type: UUID, not_null: true, ref: "contacts.contact_id" }
+          - { name: phone_number, type: VARCHAR(30), not_null: true }
+          - { name: country_code, type: CHAR(2), nullable: true }
+          - { name: type, type: VARCHAR(10), not_null: true, default: "'mobile'" }
+          - { name: is_primary, type: BOOLEAN, not_null: true, default: false }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        check: "type IN ('mobile', 'landline', 'fax', 'other')"
+
+      Account:
+        table: accounts
+        description: Organizational entity grouping contacts under a commercial relationship.
+        columns:
+          - { name: account_id, type: UUID, pk: true }
+          - { name: company_name, type: VARCHAR(300), not_null: true }
+          - { name: industry, type: VARCHAR(100), nullable: true }
+          - { name: size, type: VARCHAR(20), nullable: true }
+          - { name: website, type: VARCHAR(500), nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: deleted_at, type: TIMESTAMPTZ, nullable: true }
+        indexes:
+          - "CREATE INDEX idx_accounts_name ON accounts (LOWER(company_name)) WHERE deleted_at IS NULL"
+        check: "size IS NULL OR size IN ('micro', 'small', 'medium', 'mid_market', 'enterprise')"
+
+      AccountContact:
+        table: account_contacts
+        description: Join table linking contacts to accounts (many-to-many).
+        columns:
+          - { name: account_id, type: UUID, not_null: true, ref: "accounts.account_id" }
+          - { name: contact_id, type: UUID, not_null: true, ref: "contacts.contact_id" }
+          - { name: role, type: VARCHAR(100), nullable: true }
+          - { name: linked_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        pk: "(account_id, contact_id)"
+
+      ConsentRecord:
+        table: consent_records
+        description: Consent grants/revocations for data-processing purposes.
+        columns:
+          - { name: consent_id, type: UUID, pk: true }
+          - { name: contact_id, type: UUID, not_null: true, ref: "contacts.contact_id" }
+          - { name: customer_id, type: UUID, not_null: true, ref: "customers.customer_id" }
+          - { name: purpose, type: VARCHAR(100), not_null: true }
+          - { name: granted, type: BOOLEAN, not_null: true }
+          - { name: granted_at, type: TIMESTAMPTZ, not_null: true }
+          - { name: expires_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: source, type: VARCHAR(50), nullable: true }
+        indexes:
+          - "CREATE INDEX idx_consent_contact ON consent_records (contact_id, purpose)"
+          - "CREATE UNIQUE INDEX idx_consent_active ON consent_records (contact_id, purpose) WHERE expires_at IS NULL OR expires_at > NOW()"
+
+    erd_notes: |
+      Customer 1→N Contact 1→N ContactEmail
+      Customer 1→N Contact 1→N ContactPhone
+      Account 1→N AccountContact N→1 Contact
+      Contact 1→N ConsentRecord
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Sales / Opportunity Pipeline
+  # Database: crm_sales
+  # ═══════════════════════════════════════════════════════════════════════
+  sales:
+    description: |
+      Manages opportunities, quotes, products, and forecasting.
+      References CIAM customers/accounts by UUID (no FK).
+
+    aggregates:
+
+      Opportunity:
+        table: opportunities
+        description: A qualified sales deal being pursued.
+        columns:
+          - { name: opportunity_id, type: UUID, pk: true }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM, no FK" }
+          - { name: account_id, type: UUID, not_null: true, comment: "Ref to CIAM, no FK" }
+          - { name: name, type: VARCHAR(300), not_null: true }
+          - { name: stage, type: VARCHAR(50), not_null: true, default: "'Prospecting'" }
+          - { name: amount_value, type: DECIMAL(14,2), not_null: true }
+          - { name: amount_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: probability, type: SMALLINT, not_null: true, default: 0 }
+          - { name: expected_close_date, type: DATE, nullable: true }
+          - { name: owner_id, type: UUID, not_null: true, comment: "Ref to CIAM user/contact" }
+          - { name: outcome, type: VARCHAR(10), nullable: true }
+          - { name: win_loss_reason_category, type: VARCHAR(20), nullable: true }
+          - { name: closed_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: deleted_at, type: TIMESTAMPTZ, nullable: true }
+        indexes:
+          - "CREATE INDEX idx_opps_stage ON opportunities (stage) WHERE deleted_at IS NULL"
+          - "CREATE INDEX idx_opps_owner ON opportunities (owner_id) WHERE deleted_at IS NULL"
+          - "CREATE INDEX idx_opps_customer ON opportunities (customer_id) WHERE deleted_at IS NULL"
+          - "CREATE INDEX idx_opps_close_date ON opportunities (expected_close_date) WHERE outcome IS NULL"
+        check: "probability BETWEEN 0 AND 100"
+        check2: "outcome IS NULL OR outcome IN ('won', 'lost')"
+        check3: "stage IN ('Prospecting', 'Discovery', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost')"
+
+      Quote:
+        table: quotes
+        description: A formal price proposal for an opportunity.
+        columns:
+          - { name: quote_id, type: UUID, pk: true }
+          - { name: opportunity_id, type: UUID, not_null: true, ref: "opportunities.opportunity_id" }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Draft'" }
+          - { name: total_amount_value, type: DECIMAL(14,2), not_null: true, default: 0 }
+          - { name: total_amount_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: valid_until, type: DATE, nullable: true }
+          - { name: sent_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: accepted_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: rejected_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_quotes_opportunity ON quotes (opportunity_id)"
+        check: "status IN ('Draft', 'Sent', 'Accepted', 'Rejected')"
+
+      QuoteLineItem:
+        table: quote_line_items
+        description: Product + quantity + discount within a quote.
+        columns:
+          - { name: line_item_id, type: UUID, pk: true }
+          - { name: quote_id, type: UUID, not_null: true, ref: "quotes.quote_id" }
+          - { name: product_id, type: UUID, not_null: true, comment: "Ref to products" }
+          - { name: product_name, type: VARCHAR(300), not_null: true, comment: "Denormalized at time of quote" }
+          - { name: quantity, type: INTEGER, not_null: true, default: 1 }
+          - { name: unit_price_value, type: DECIMAL(14,2), not_null: true }
+          - { name: unit_price_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: discount_percent, type: DECIMAL(5,2), not_null: true, default: 0 }
+          - { name: total_price_value, type: DECIMAL(14,2), not_null: true }
+          - { name: total_price_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: sort_order, type: SMALLINT, not_null: true, default: 0 }
+        check: "quantity >= 1"
+        check2: "discount_percent BETWEEN 0 AND 100"
+
+      Product:
+        table: products
+        description: Sellable item or service (shared kernel with Billing).
+        columns:
+          - { name: product_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(300), not_null: true }
+          - { name: description, type: TEXT, nullable: true }
+          - { name: unit_price_value, type: DECIMAL(14,2), not_null: true }
+          - { name: unit_price_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: is_active, type: BOOLEAN, not_null: true, default: true }
+          - { name: category, type: VARCHAR(100), nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: deleted_at, type: TIMESTAMPTZ, nullable: true }
+        indexes:
+          - "CREATE INDEX idx_products_category ON products (category) WHERE deleted_at IS NULL"
+
+      StageDefinition:
+        table: stage_definitions
+        description: Configurable pipeline stages (seeded data, mutable by admins).
+        columns:
+          - { name: stage_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(50), not_null: true }
+          - { name: sort_order, type: SMALLINT, not_null: true }
+          - { name: probability, type: SMALLINT, not_null: true }
+          - { name: is_closed, type: BOOLEAN, not_null: true, default: false }
+          - { name: is_won, type: BOOLEAN, not_null: true, default: false }
+        indexes:
+          - "CREATE UNIQUE INDEX idx_stage_name ON stage_definitions (name)"
+
+    erd_notes: |
+      Opportunity 1→N Quote 1→N QuoteLineItem
+      Product 1→N QuoteLineItem (product_id ref, no FK)
+      StageDefinition is standalone config data.
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Support / Ticketing
+  # Database: crm_support
+  # ═══════════════════════════════════════════════════════════════════════
+  support:
+    description: |
+      Manages customer support tickets, comments, and SLA tracking.
+      References CIAM customers (requester_id) by UUID only.
+
+    aggregates:
+
+      Ticket:
+        table: tickets
+        description: A single support request from a customer.
+        columns:
+          - { name: ticket_id, type: UUID, pk: true }
+          - { name: requester_id, type: UUID, not_null: true, comment: "Ref to CIAM contact, no FK" }
+          - { name: assignee_id, type: UUID, nullable: true, comment: "Ref to CIAM contact, no FK" }
+          - { name: subject, type: VARCHAR(500), not_null: true }
+          - { name: description, type: TEXT, nullable: true }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Open'" }
+          - { name: priority, type: VARCHAR(10), not_null: true, default: "'Medium'" }
+          - { name: queue_id, type: UUID, nullable: true, comment: "Ref to queues" }
+          - { name: sla_deadline, type: TIMESTAMPTZ, nullable: true }
+          - { name: sla_first_response_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: resolved_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: closed_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: reopen_count, type: SMALLINT, not_null: true, default: 0 }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_tickets_status ON tickets (status) WHERE closed_at IS NULL"
+          - "CREATE INDEX idx_tickets_assignee ON tickets (assignee_id) WHERE closed_at IS NULL"
+          - "CREATE INDEX idx_tickets_queue ON tickets (queue_id) WHERE closed_at IS NULL"
+          - "CREATE INDEX idx_tickets_requester ON tickets (requester_id)"
+          - "CREATE INDEX idx_tickets_sla ON tickets (sla_deadline) WHERE sla_deadline IS NOT NULL AND resolved_at IS NULL"
+        check: "status IN ('Open', 'Pending', 'Resolved', 'Closed')"
+        check2: "priority IN ('Low', 'Medium', 'High', 'Critical')"
+
+      Comment:
+        table: ticket_comments
+        description: Public or internal comment on a ticket.
+        columns:
+          - { name: comment_id, type: UUID, pk: true }
+          - { name: ticket_id, type: UUID, not_null: true, ref: "tickets.ticket_id" }
+          - { name: author_id, type: UUID, not_null: true, comment: "Ref to CIAM contact, no FK" }
+          - { name: body, type: TEXT, not_null: true }
+          - { name: is_internal, type: BOOLEAN, not_null: true, default: false }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_comments_ticket ON ticket_comments (ticket_id, created_at ASC)"
+
+      Attachment:
+        table: ticket_attachments
+        description: File attached to a ticket.
+        columns:
+          - { name: attachment_id, type: UUID, pk: true }
+          - { name: ticket_id, type: UUID, not_null: true, ref: "tickets.ticket_id" }
+          - { name: file_name, type: VARCHAR(255), not_null: true }
+          - { name: mime_type, type: VARCHAR(100), not_null: true }
+          - { name: size_bytes, type: INTEGER, not_null: true }
+          - { name: storage_path, type: VARCHAR(500), not_null: true, comment: "S3/minio key, not the actual file" }
+          - { name: uploaded_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_attachments_ticket ON ticket_attachments (ticket_id)"
+
+      Queue:
+        table: support_queues
+        description: A prioritized list of unassigned or grouped tickets.
+        columns:
+          - { name: queue_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(100), not_null: true }
+          - { name: is_active, type: BOOLEAN, not_null: true, default: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+
+      QueueAgent:
+        table: support_queue_agents
+        description: Agents assigned to a queue (many-to-many).
+        columns:
+          - { name: queue_id, type: UUID, not_null: true, ref: "support_queues.queue_id" }
+          - { name: agent_id, type: UUID, not_null: true, comment: "Ref to CIAM contact, no FK" }
+          - { name: assigned_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        pk: "(queue_id, agent_id)"
+
+      SLAPolicy:
+        table: sla_policies
+        description: SLA targets by priority level.
+        columns:
+          - { name: policy_id, type: UUID, pk: true }
+          - { name: priority, type: VARCHAR(10), not_null: true }
+          - { name: first_response_minutes, type: INTEGER, not_null: true }
+          - { name: resolution_minutes, type: INTEGER, not_null: true }
+          - { name: business_hours_only, type: BOOLEAN, not_null: true, default: true }
+        indexes:
+          - "CREATE UNIQUE INDEX idx_sla_priority ON sla_policies (priority)"
+
+      CSATRating:
+        table: csat_ratings
+        description: Customer satisfaction scores submitted on ticket closure.
+        columns:
+          - { name: csat_id, type: UUID, pk: true }
+          - { name: ticket_id, type: UUID, not_null: true, ref: "tickets.ticket_id" }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: score, type: SMALLINT, not_null: true }
+          - { name: comment, type: TEXT, nullable: true }
+          - { name: submitted_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        check: "score BETWEEN 1 AND 5"
+
+    erd_notes: |
+      Ticket 1→N Comment
+      Ticket 1→N Attachment
+      Queue 1→N QueueAgent N→1 CIAM contact (no FK)
+      Ticket N→1 CSATRating (0..1)
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Marketing / Campaigns
+  # Database: crm_marketing
+  # ═══════════════════════════════════════════════════════════════════════
+  marketing:
+    description: |
+      Manages campaigns, audience segments, and engagement tracking.
+      References CIAM customers for audience targeting via UUID only.
+
+    aggregates:
+
+      Campaign:
+        table: campaigns
+        description: A coordinated marketing effort.
+        columns:
+          - { name: campaign_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(300), not_null: true }
+          - { name: objective, type: TEXT, nullable: true }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Draft'" }
+          - { name: channel, type: VARCHAR(20), not_null: true }
+          - { name: audience_id, type: UUID, nullable: true, ref: "segments.segment_id" }
+          - { name: start_date, type: TIMESTAMPTZ, nullable: true }
+          - { name: end_date, type: TIMESTAMPTZ, nullable: true }
+          - { name: budget_value, type: DECIMAL(14,2), nullable: true }
+          - { name: budget_currency, type: CHAR(3), nullable: true }
+          - { name: launched_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: completed_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_campaigns_status ON campaigns (status)"
+          - "CREATE INDEX idx_campaigns_channel ON campaigns (channel)"
+        check: "status IN ('Draft', 'Scheduled', 'Active', 'Paused', 'Completed')"
+        check2: "channel IN ('Email', 'SMS', 'Push', 'Social', 'DirectMail')"
+
+      Segment:
+        table: segments
+        description: A filtered subset of the customer base.
+        columns:
+          - { name: segment_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(300), not_null: true }
+          - { name: criteria, type: JSONB, not_null: true, default: "'[]'", comment: "AudienceCriteria filters as JSON" }
+          - { name: is_dynamic, type: BOOLEAN, not_null: true, default: false }
+          - { name: last_refreshed_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: member_count, type: INTEGER, not_null: true, default: 0 }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+
+      SegmentMember:
+        table: segment_members
+        description: Customers belonging to a segment (materialized for static segments).
+        columns:
+          - { name: segment_id, type: UUID, not_null: true, ref: "segments.segment_id" }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: added_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        pk: "(segment_id, customer_id)"
+        indexes:
+          - "CREATE INDEX idx_segment_members_customer ON segment_members (customer_id)"
+
+      ContentVariant:
+        table: content_variants
+        description: A/B test variant of campaign content.
+        columns:
+          - { name: variant_id, type: UUID, pk: true }
+          - { name: campaign_id, type: UUID, not_null: true, ref: "campaigns.campaign_id" }
+          - { name: name, type: VARCHAR(100), not_null: true }
+          - { name: subject_line, type: VARCHAR(500), nullable: true }
+          - { name: body, type: TEXT, nullable: true }
+          - { name: cta_text, type: VARCHAR(200), nullable: true }
+          - { name: is_control, type: BOOLEAN, not_null: true, default: false }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+
+      Engagement:
+        table: engagements
+        description: Tracked customer interaction with a campaign.
+        columns:
+          - { name: engagement_id, type: UUID, pk: true }
+          - { name: campaign_id, type: UUID, not_null: true, ref: "campaigns.campaign_id" }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: variant_id, type: UUID, nullable: true, ref: "content_variants.variant_id" }
+          - { name: type, type: VARCHAR(20), not_null: true }
+          - { name: metadata, type: JSONB, nullable: true }
+          - { name: occurred_at, type: TIMESTAMPTZ, not_null: true }
+        indexes:
+          - "CREATE INDEX idx_engagements_campaign ON engagements (campaign_id)"
+          - "CREATE INDEX idx_engagements_customer ON engagements (customer_id)"
+          - "CREATE INDEX idx_engagements_occurred ON engagements (occurred_at DESC)"
+        check: "type IN ('Open', 'Click', 'Bounce', 'Unsubscribe')"
+
+    erd_notes: |
+      Campaign 1→N ContentVariant
+      Segment 1→N SegmentMember (materialized for static; dynamic uses query)
+      Campaign 1→N Engagement
+      Segment 1→N Campaign (audience_id ref)
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Communication Hub
+  # Database: crm_communication
+  # ═══════════════════════════════════════════════════════════════════════
+  communication:
+    description: |
+      Orchestrates all outbound and inbound communications across channels.
+      Does not own customer data — references CIAM customer_id only.
+
+    aggregates:
+
+      Message:
+        table: messages
+        description: A single communication unit sent to or received from a customer.
+        columns:
+          - { name: message_id, type: UUID, pk: true }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: channel, type: VARCHAR(20), not_null: true }
+          - { name: direction, type: VARCHAR(10), not_null: true }
+          - { name: subject, type: VARCHAR(500), nullable: true }
+          - { name: body, type: TEXT, nullable: true }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Queued'" }
+          - { name: thread_id, type: UUID, nullable: true, comment: "Links conversation thread" }
+          - { name: sent_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: delivered_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: read_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: failure_reason, type: VARCHAR(500), nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_messages_customer ON messages (customer_id, created_at DESC)"
+          - "CREATE INDEX idx_messages_thread ON messages (thread_id) WHERE thread_id IS NOT NULL"
+          - "CREATE INDEX idx_messages_status ON messages (status) WHERE status IN ('Queued', 'Failed')"
+        check: "channel IN ('Email', 'SMS', 'Push', 'InApp', 'WhatsApp')"
+        check2: "direction IN ('Inbound', 'Outbound')"
+        check3: "status IN ('Queued', 'Sent', 'Delivered', 'Failed', 'Read')"
+
+      Template:
+        table: message_templates
+        description: Reusable message blueprint with variable placeholders.
+        columns:
+          - { name: template_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(300), not_null: true }
+          - { name: channel, type: VARCHAR(20), not_null: true }
+          - { name: subject, type: VARCHAR(500), nullable: true }
+          - { name: body, type: TEXT, not_null: true }
+          - { name: variables, type: JSONB, not_null: true, default: "'[]'", comment: "Ordered list of variable names" }
+          - { name: is_active, type: BOOLEAN, not_null: true, default: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        check: "channel IN ('Email', 'SMS', 'Push', 'InApp', 'WhatsApp')"
+
+      OptOut:
+        table: opt_outs
+        description: Customer opt-out records per channel.
+        columns:
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: channel, type: VARCHAR(20), not_null: true }
+          - { name: opted_out_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: source, type: VARCHAR(50), nullable: true }
+        pk: "(customer_id, channel)"
+        check: "channel IN ('Email', 'SMS', 'Push', 'InApp', 'WhatsApp')"
+
+    erd_notes: |
+      Message is append-only (immutable after creation).
+      Template is standalone config.
+      OptOut is a simple lookup table keyed by (customer_id, channel).
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Billing & Subscription
+  # Database: crm_billing
+  # ═══════════════════════════════════════════════════════════════════════
+  billing:
+    description: |
+      Manages subscriptions, invoicing, and payment processing.
+      References CIAM customers and Sales products by UUID only.
+
+    aggregates:
+
+      Subscription:
+        table: subscriptions
+        description: A recurring billing agreement.
+        columns:
+          - { name: subscription_id, type: UUID, pk: true }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: plan_id, type: UUID, not_null: true, ref: "plans.plan_id" }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Active'" }
+          - { name: billing_cycle, type: VARCHAR(15), not_null: true }
+          - { name: start_date, type: DATE, not_null: true }
+          - { name: end_date, type: DATE, nullable: true }
+          - { name: next_billing_date, type: DATE, nullable: true }
+          - { name: quantity, type: INTEGER, not_null: true, default: 1 }
+          - { name: trial_ends_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: cancelled_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: cancel_reason, type: VARCHAR(500), nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_subscriptions_customer ON subscriptions (customer_id)"
+          - "CREATE INDEX idx_subscriptions_status ON subscriptions (status) WHERE status IN ('Active', 'PastDue', 'Trial')"
+          - "CREATE INDEX idx_subscriptions_next_billing ON subscriptions (next_billing_date) WHERE status IN ('Active', 'Trial')"
+        check: "status IN ('Active', 'PastDue', 'Cancelled', 'Trial')"
+        check2: "billing_cycle IN ('Monthly', 'Quarterly', 'Annual')"
+
+      Plan:
+        table: plans
+        description: A named pricing tier (shared kernel with Sales Product).
+        columns:
+          - { name: plan_id, type: UUID, pk: true }
+          - { name: name, type: VARCHAR(300), not_null: true }
+          - { name: billing_cycle, type: VARCHAR(15), not_null: true }
+          - { name: price_value, type: DECIMAL(14,2), not_null: true }
+          - { name: price_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: trial_days, type: SMALLINT, not_null: true, default: 0 }
+          - { name: is_active, type: BOOLEAN, not_null: true, default: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        check: "billing_cycle IN ('Monthly', 'Quarterly', 'Annual')"
+
+      Invoice:
+        table: invoices
+        description: A bill issued to a customer for products/services rendered.
+        columns:
+          - { name: invoice_id, type: UUID, pk: true }
+          - { name: subscription_id, type: UUID, not_null: true, ref: "subscriptions.subscription_id" }
+          - { name: customer_id, type: UUID, not_null: true, comment: "Ref to CIAM customer, no FK" }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Draft'" }
+          - { name: subtotal_value, type: DECIMAL(14,2), not_null: true }
+          - { name: subtotal_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: tax_value, type: DECIMAL(14,2), not_null: true, default: 0 }
+          - { name: tax_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: total_value, type: DECIMAL(14,2), not_null: true }
+          - { name: total_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: issued_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: due_date, type: DATE, nullable: true }
+          - { name: paid_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+          - { name: updated_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_invoices_subscription ON invoices (subscription_id)"
+          - "CREATE INDEX idx_invoices_customer ON invoices (customer_id)"
+          - "CREATE INDEX idx_invoices_status ON invoices (status) WHERE status IN ('Draft', 'Issued', 'Overdue')"
+          - "CREATE INDEX idx_invoices_due_date ON invoices (due_date) WHERE status IN ('Issued', 'Overdue')"
+        check: "status IN ('Draft', 'Issued', 'Paid', 'Void', 'Overdue')"
+
+      InvoiceLineItem:
+        table: invoice_line_items
+        description: Line item within an invoice.
+        columns:
+          - { name: line_item_id, type: UUID, pk: true }
+          - { name: invoice_id, type: UUID, not_null: true, ref: "invoices.invoice_id" }
+          - { name: description, type: VARCHAR(500), not_null: true }
+          - { name: quantity, type: INTEGER, not_null: true, default: 1 }
+          - { name: unit_price_value, type: DECIMAL(14,2), not_null: true }
+          - { name: unit_price_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: total_price_value, type: DECIMAL(14,2), not_null: true }
+          - { name: total_price_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+
+      Payment:
+        table: payments
+        description: A monetary transaction settling an invoice.
+        columns:
+          - { name: payment_id, type: UUID, pk: true }
+          - { name: invoice_id, type: UUID, not_null: true, ref: "invoices.invoice_id" }
+          - { name: amount_value, type: DECIMAL(14,2), not_null: true }
+          - { name: amount_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: method, type: VARCHAR(20), not_null: true }
+          - { name: status, type: VARCHAR(20), not_null: true, default: "'Pending'" }
+          - { name: external_ref, type: VARCHAR(500), nullable: true }
+          - { name: processed_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: refunded_at, type: TIMESTAMPTZ, nullable: true }
+          - { name: created_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_payments_invoice ON payments (invoice_id)"
+          - "CREATE INDEX idx_payments_status ON payments (status) WHERE status IN ('Pending', 'Failed')"
+        check: "method IN ('Card', 'Bank', 'Wallet')"
+        check2: "status IN ('Pending', 'Succeeded', 'Failed', 'Refunded')"
+
+      CreditNote:
+        table: credit_notes
+        description: A refund or adjustment issued against an invoice.
+        columns:
+          - { name: credit_note_id, type: UUID, pk: true }
+          - { name: invoice_id, type: UUID, not_null: true, ref: "invoices.invoice_id" }
+          - { name: amount_value, type: DECIMAL(14,2), not_null: true }
+          - { name: amount_currency, type: CHAR(3), not_null: true, default: "'USD'" }
+          - { name: reason, type: VARCHAR(1000), not_null: true }
+          - { name: issued_at, type: TIMESTAMPTZ, not_null: true, default: "NOW()" }
+        indexes:
+          - "CREATE INDEX idx_credit_notes_invoice ON credit_notes (invoice_id)"
+
+    erd_notes: |
+      Plan 1→N Subscription
+      Subscription 1→N Invoice 1→N InvoiceLineItem
+      Invoice 1→N Payment
+      Invoice 1→N CreditNote
+      Plan is a shared kernel with Sales.Product

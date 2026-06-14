@@ -1,0 +1,799 @@
+openapi: 3.1.0
+info:
+  title: Communication Hub API
+  description: |
+    The cross-cutting context that orchestrates all outbound and inbound
+    communications across channels. Owns templates, delivery logs, and channel
+    adapters. Does not own customer data — references Customer IDs.
+  version: 1.0.0
+  contact:
+    name: CRM Platform Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.crm.example.com/v1
+    description: Production
+  - url: https://staging-api.crm.example.com/v1
+    description: Staging
+
+tags:
+  - name: Messages
+    description: Outbound and inbound message dispatch and tracking.
+  - name: Templates
+    description: Reusable message blueprints with variable placeholders.
+  - name: Delivery
+    description: Delivery status tracking and retry management.
+
+paths:
+  # ── Messages ───────────────────────────────────────────────────────────
+  /messages:
+    get:
+      operationId: listMessages
+      summary: List messages
+      description: Retrieve a paginated list of messages with optional filtering.
+      tags: [Messages]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: customerId
+          in: query
+          description: Filter by customer reference.
+          schema:
+            type: string
+            format: uuid
+        - name: channel
+          in: query
+          schema:
+            $ref: '#/components/schemas/Channel'
+        - name: direction
+          in: query
+          schema:
+            $ref: '#/components/schemas/Direction'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MessageStatus'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, sentAt, -sentAt]
+            default: -createdAt
+      responses:
+        '200':
+          description: Paginated list of messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMessages'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    post:
+      operationId: sendMessage
+      summary: Send a message
+      description: |
+        Dispatch a message to a customer via a specific channel.
+        Emits `MessageSent` domain event.
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message queued for delivery.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of the created message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /messages/{messageId}:
+    get:
+      operationId: getMessage
+      summary: Get a message by ID
+      tags: [Messages]
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+      responses:
+        '200':
+          description: Message details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /messages/{messageId}/retry:
+    post:
+      operationId: retryDelivery
+      summary: Retry message delivery
+      description: |
+        Re-attempt delivery of a failed message.
+        Emits `MessageFailed` domain event if retry also fails.
+      tags: [Delivery]
+      parameters:
+        - $ref: '#/components/parameters/MessageIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Retry initiated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /messages/inbound:
+    post:
+      operationId: recordInbound
+      summary: Record an inbound message
+      description: |
+        Process an incoming message from a customer (email reply, SMS).
+        Emits `InboundReceived` domain event.
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordInboundRequest'
+      responses:
+        '201':
+          description: Inbound message recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ── Templates ─────────────────────────────────────────────────────────
+  /templates:
+    get:
+      operationId: listTemplates
+      summary: List templates
+      description: Retrieve a paginated list of message templates.
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: channel
+          in: query
+          schema:
+            $ref: '#/components/schemas/Channel'
+      responses:
+        '200':
+          description: Paginated list of templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTemplates'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      operationId: createTemplate
+      summary: Create a template
+      description: Define a new reusable message template.
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplateRequest'
+      responses:
+        '201':
+          description: Template created.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of the created template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /templates/{templateId}:
+    get:
+      operationId: getTemplate
+      summary: Get a template by ID
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      responses:
+        '200':
+          description: Template details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateTemplate
+      summary: Update a template
+      description: Partially update template attributes. Only provided fields are mutated.
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTemplateRequest'
+      responses:
+        '200':
+          description: Template updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /templates/{templateId}/render:
+    post:
+      operationId: renderTemplate
+      summary: Render a template
+      description: Merge a template with variable values to produce final content.
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderTemplateRequest'
+      responses:
+        '200':
+          description: Rendered template content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderTemplateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ── Opt-Out ───────────────────────────────────────────────────────────
+  /opt-out:
+    post:
+      operationId: markOptOut
+      summary: Mark opt-out
+      description: |
+        Record a customer's opt-out for a specific channel.
+        Emits `OptOutRecorded` domain event.
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkOptOutRequest'
+      responses:
+        '201':
+          description: Opt-out recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [customerId, channel, optedOutAt]
+                properties:
+                  customerId:
+                    type: string
+                    format: uuid
+                  channel:
+                    $ref: '#/components/schemas/Channel'
+                  optedOutAt:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+components:
+  # ── Parameters ────────────────────────────────────────────────────────
+  parameters:
+    MessageIdParam:
+      name: messageId
+      in: path
+      required: true
+      description: Unique identifier of the message.
+      schema:
+        type: string
+        format: uuid
+
+    TemplateIdParam:
+      name: templateId
+      in: path
+      required: true
+      description: Unique identifier of the template.
+      schema:
+        type: string
+        format: uuid
+
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-indexed).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+
+  # ── Schemas ───────────────────────────────────────────────────────────
+  schemas:
+    # Enums
+    Channel:
+      type: string
+      enum: [Email, SMS, Push, InApp, WhatsApp]
+      description: The transport medium.
+
+    Direction:
+      type: string
+      enum: [Inbound, Outbound]
+      description: Message direction.
+
+    MessageStatus:
+      type: string
+      enum: [Queued, Sent, Delivered, Failed, Read]
+      description: Current delivery status of the message.
+
+    # Value Objects
+    TemplateRef:
+      type: object
+      required: [templateId]
+      properties:
+        templateId:
+          type: string
+          format: uuid
+          description: Reference to a template.
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+          description: Variable name to value mapping for template rendering.
+
+    ChannelAddress:
+      type: object
+      required: [channel, address]
+      properties:
+        channel:
+          $ref: '#/components/schemas/Channel'
+        address:
+          type: string
+          description: Channel-specific address (email, phone number, device token).
+
+    # Request Bodies
+    SendMessageRequest:
+      type: object
+      required: [customerId, channel, body]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        channel:
+          $ref: '#/components/schemas/Channel'
+        body:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        subject:
+          type: string
+          maxLength: 500
+        templateRef:
+          $ref: '#/components/schemas/TemplateRef'
+        threadId:
+          type: string
+          format: uuid
+          description: Optional conversation thread identifier.
+
+    RecordInboundRequest:
+      type: object
+      required: [customerId, channel, body, receivedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        channel:
+          $ref: '#/components/schemas/Channel'
+        body:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        subject:
+          type: string
+          maxLength: 500
+        receivedAt:
+          type: string
+          format: date-time
+
+    CreateTemplateRequest:
+      type: object
+      required: [name, channel, body]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+        channel:
+          $ref: '#/components/schemas/Channel'
+        body:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        subject:
+          type: string
+          maxLength: 500
+        variables:
+          type: array
+          items:
+            type: string
+          description: Variable placeholder names used in the template (e.g., ["firstName", "companyName"]).
+
+    UpdateTemplateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+        body:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        subject:
+          type: string
+          maxLength: 500
+        variables:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+
+    RenderTemplateRequest:
+      type: object
+      required: [variables]
+      properties:
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+          description: Variable name to value mapping.
+
+    MarkOptOutRequest:
+      type: object
+      required: [customerId, channel]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        channel:
+          $ref: '#/components/schemas/Channel'
+
+    # Response Bodies
+    DeliveryAttempt:
+      type: object
+      required: [attemptId, channel, status, attemptedAt]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        channel:
+          $ref: '#/components/schemas/Channel'
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        errorCode:
+          type: string
+          nullable: true
+          description: Channel-specific error code if delivery failed.
+        attemptedAt:
+          type: string
+          format: date-time
+
+    MessageResponse:
+      type: object
+      required: [messageId, customerId, channel, direction, body, status, createdAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer.
+        channel:
+          $ref: '#/components/schemas/Channel'
+        direction:
+          $ref: '#/components/schemas/Direction'
+        subject:
+          type: string
+          nullable: true
+        body:
+          type: string
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        threadId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    TemplateResponse:
+      type: object
+      required: [templateId, name, channel, body, isActive, createdAt, updatedAt]
+      properties:
+        templateId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        channel:
+          $ref: '#/components/schemas/Channel'
+        subject:
+          type: string
+          nullable: true
+        body:
+          type: string
+        variables:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RenderTemplateResponse:
+      type: object
+      required: [renderedBody]
+      properties:
+        renderedSubject:
+          type: string
+          nullable: true
+        renderedBody:
+          type: string
+
+    PaginatedMessages:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    PaginatedTemplates:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    # Error Models
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error description.
+        target:
+          type: string
+          description: The field or parameter that caused the error.
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              message:
+                type: string
+              target:
+                type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+  # ── Responses ─────────────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: Invalid request — malformed parameters or body.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "invalid_request"
+              message: "Request validation failed."
+              details:
+                - code: "invalid_format"
+                  message: "Field 'channel' must be one of: Email, SMS, Push, InApp, WhatsApp."
+                  target: "channel"
+
+    Unauthorized:
+      description: Authentication required or invalid credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unauthorized"
+              message: "Valid authentication credentials are required."
+
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "not_found"
+              message: "Message not found."
+              target: "messageId"
+
+    Conflict:
+      description: Resource conflict — duplicate message or concurrent modification.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "conflict"
+              message: "A message with this idempotency key already exists."
+
+    UnprocessableEntity:
+      description: Request is well-formed but violates business rules.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unprocessable"
+              message: "Customer has opted out of this channel."
+
+  # ── Security ──────────────────────────────────────────────────────────
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token issued by the CIAM auth service.
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication.
+
+security:
+  - bearerAuth: []

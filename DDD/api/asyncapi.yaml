@@ -1,0 +1,2426 @@
+asyncapi: 3.0.0
+info:
+  title: CRM — Domain Events
+  version: 1.0.0
+  description: |
+    Asynchronous event contracts for the CRM platform. Each bounded context
+    publishes domain events to Kafka topics following the naming convention
+    crm.{context}.{aggregate}.{event}. Events are the primary integration
+    mechanism — contexts remain loosely coupled and never directly mutate
+    another's aggregates.
+
+    ## Topic Naming Convention
+
+    Format: `crm.{bounded-context}.{aggregate-name}.{event-name}`
+
+    - `bounded-context`: ciam | sales | support | marketing | communication | billing
+    - `aggregate-name`: lowercase, hyphenated (e.g., opportunity, subscription)
+    - `event-name`: lowercase, hyphenated past tense (e.g., created, closed, assigned)
+
+    ## Consumer Groups
+
+    Each subscribing context uses a consumer group named
+    `{context}.{purpose}` (e.g., `billing.subscription-creation`).
+
+    ## Message Headers
+
+    All messages include a standard envelope of headers for traceability,
+    schema routing, and idempotency. Payloads contain only the data necessary
+    for downstream consumers to react — no full-aggregate snapshots.
+  contact:
+    name: CRM Platform Team
+  license:
+    name: Proprietary
+
+defaultContentType: application/json
+
+servers:
+  production:
+    host: kafka.crm.example.com:9093
+    protocol: kafka-secure
+    description: Production Kafka cluster
+    security:
+      - $ref: '#/components/securitySchemes/saslScram'
+  staging:
+    host: kafka-staging.crm.example.com:9093
+    protocol: kafka-secure
+    description: Staging Kafka cluster
+    security:
+      - $ref: '#/components/securitySchemes/saslScram'
+
+channels:
+  # ═══════════════════════════════════════════════════════════════════════
+  # CIAM — Customer Identity & Access Management
+  # ═══════════════════════════════════════════════════════════════════════
+
+  ciamCustomerRegistered:
+    address: crm.ciam.customer.registered
+    description: |
+      Published when a new contact is registered. Consumed by Sales
+      (opportunity seeding), Marketing (lead ingestion), and Communication
+      (welcome flow).
+    messages:
+      customerRegistered:
+        $ref: '#/components/messages/CustomerRegistered'
+
+  ciamLeadQualified:
+    address: crm.ciam.lead.qualified
+    description: |
+      Published when a lead meets the qualification score threshold.
+      Consumed by Sales to trigger opportunity creation.
+    messages:
+      leadQualified:
+        $ref: '#/components/messages/LeadQualified'
+
+  ciamCustomersMerged:
+    address: crm.ciam.customer.merged
+    description: |
+      Published when two customer records are deduplicated. Consumed by
+      all contexts to update stale references.
+    messages:
+      customersMerged:
+        $ref: '#/components/messages/CustomersMerged'
+
+  ciamConsentChanged:
+    address: crm.ciam.consent.changed
+    description: |
+      Published when consent is granted or revoked for a purpose.
+      Consumed by Marketing (campaign eligibility) and Communication
+      (channel opt-in enforcement).
+    messages:
+      consentChanged:
+        $ref: '#/components/messages/ConsentChanged'
+
+  ciamEmailVerified:
+    address: crm.ciam.email.verified
+    description: |
+      Published when a contact's email passes challenge/response verification.
+      Consumed by Communication to enable email channel delivery.
+    messages:
+      emailVerified:
+        $ref: '#/components/messages/EmailVerified'
+
+  ciamCustomerDeactivated:
+    address: crm.ciam.customer.deactivated
+    description: |
+      Published when a contact is soft-deleted. Consumed by Support
+      (suspend open tickets), Billing (cancel subscriptions), and
+      Communication (suppress outbound messages).
+    messages:
+      customerDeactivated:
+        $ref: '#/components/messages/CustomerDeactivated'
+
+  ciamLifecycleStageChanged:
+    address: crm.ciam.lifecycle-stage.changed
+    description: |
+      Published when a customer transitions lifecycle stage
+      (Lead → Qualified → Opportunity → Customer → Advocate/Churned).
+      Consumed by Sales for pipeline stage synchronization.
+    messages:
+      lifecycleStageChanged:
+        $ref: '#/components/messages/LifecycleStageChanged'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Sales / Opportunity Pipeline
+  # ═══════════════════════════════════════════════════════════════════════
+
+  salesOpportunityCreated:
+    address: crm.sales.opportunity.created
+    description: |
+      Published when a new opportunity is opened. Consumed by Communication
+      for stakeholder notifications.
+    messages:
+      opportunityCreated:
+        $ref: '#/components/messages/OpportunityCreated'
+
+  salesOpportunityStageAdvanced:
+    address: crm.sales.opportunity.stage-advanced
+    description: |
+      Published when an opportunity moves to the next pipeline stage.
+      Consumed by Communication for status update notifications.
+    messages:
+      opportunityStageAdvanced:
+        $ref: '#/components/messages/OpportunityStageAdvanced'
+
+  salesOpportunityClosed:
+    address: crm.sales.opportunity.closed
+    description: |
+      Published when an opportunity is closed (won or lost). Consumed by
+      Billing (won → create subscription/invoice) and Communication
+      (team notifications).
+    messages:
+      opportunityClosed:
+        $ref: '#/components/messages/OpportunityClosed'
+
+  salesQuoteGenerated:
+    address: crm.sales.quote.generated
+    description: |
+      Published when a quote with line items is created for an opportunity.
+      Consumed by Communication to deliver the quote to the customer.
+    messages:
+      quoteGenerated:
+        $ref: '#/components/messages/QuoteGenerated'
+
+  salesQuoteSent:
+    address: crm.sales.quote.sent
+    description: |
+      Published when a quote is marked as sent to the customer.
+      Consumed by Communication for delivery tracking.
+    messages:
+      quoteSent:
+        $ref: '#/components/messages/QuoteSent'
+
+  salesQuoteAccepted:
+    address: crm.sales.quote.accepted
+    description: |
+      Published when a customer accepts a quote. Consumed by Billing
+      to trigger subscription creation or invoice generation.
+    messages:
+      quoteAccepted:
+        $ref: '#/components/messages/QuoteAccepted'
+
+  salesForecastUpdated:
+    address: crm.sales.forecast.updated
+    description: |
+      Published when the pipeline forecast is recalculated.
+      Consumed by Communication for report distribution.
+    messages:
+      forecastUpdated:
+        $ref: '#/components/messages/ForecastUpdated'
+
+  salesOwnerReassigned:
+    address: crm.sales.opportunity.owner-reassigned
+    description: |
+      Published when an opportunity's sales rep changes.
+      Consumed by Communication to notify the new owner.
+    messages:
+      ownerReassigned:
+        $ref: '#/components/messages/OwnerReassigned'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Support / Ticketing
+  # ═══════════════════════════════════════════════════════════════════════
+
+  supportTicketCreated:
+    address: crm.support.ticket.created
+    description: |
+      Published when a new support ticket is opened. Consumed by
+      Communication for assignee/customer notifications.
+    messages:
+      ticketCreated:
+        $ref: '#/components/messages/TicketCreated'
+
+  supportTicketAssigned:
+    address: crm.support.ticket.assigned
+    description: |
+      Published when a ticket is assigned to an agent or queue.
+      Consumed by Communication for agent notification.
+    messages:
+      ticketAssigned:
+        $ref: '#/components/messages/TicketAssigned'
+
+  supportTicketCommentAdded:
+    address: crm.support.ticket.comment-added
+    description: |
+      Published when a comment is added to a ticket. Consumed by
+      Communication to notify the customer (public) or team (internal).
+    messages:
+      ticketCommentAdded:
+        $ref: '#/components/messages/TicketCommentAdded'
+
+  supportTicketPriorityChanged:
+    address: crm.support.ticket.priority-changed
+    description: |
+      Published when a ticket's priority is updated. Consumed by
+      Communication for SLA breach alerts.
+    messages:
+      ticketPriorityChanged:
+        $ref: '#/components/messages/TicketPriorityChanged'
+
+  supportTicketEscalated:
+    address: crm.support.ticket.escalated
+    description: |
+      Published when a ticket is escalated to a higher tier.
+      Consumed by Communication for manager notification.
+    messages:
+      ticketEscalated:
+        $ref: '#/components/messages/TicketEscalated'
+
+  supportTicketResolved:
+    address: crm.support.ticket.resolved
+    description: |
+      Published when a ticket is marked as resolved. Consumed by
+      Communication for customer notification.
+    messages:
+      ticketResolved:
+        $ref: '#/components/messages/TicketResolved'
+
+  supportTicketClosed:
+    address: crm.support.ticket.closed
+    description: |
+      Published when a ticket is finalized. Consumed by Communication
+      (CSAT survey trigger) and CIAM (customer health scoring).
+    messages:
+      ticketClosed:
+        $ref: '#/components/messages/TicketClosed'
+
+  supportTicketReopened:
+    address: crm.support.ticket.reopened
+    description: |
+      Published when a closed ticket is reopened. Consumed by
+      Communication for assignee notification.
+    messages:
+      ticketReopened:
+        $ref: '#/components/messages/TicketReopened'
+
+  supportSlaBreached:
+    address: crm.support.sla.breached
+    description: |
+      Published when system detects an SLA deadline breach.
+      Consumed by Communication for escalation alerts.
+    messages:
+      slaBreached:
+        $ref: '#/components/messages/SLABreached'
+
+  supportCsatSubmitted:
+    address: crm.support.csat.submitted
+    description: |
+      Published when a customer submits a satisfaction rating.
+      Consumed by CIAM for customer health score updates.
+    messages:
+      csatSubmitted:
+        $ref: '#/components/messages/CSATSubmitted'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Marketing / Campaigns
+  # ═══════════════════════════════════════════════════════════════════════
+
+  marketingCampaignCreated:
+    address: crm.marketing.campaign.created
+    description: |
+      Published when a new campaign is defined. Consumed by Communication
+      for delivery infrastructure preparation.
+    messages:
+      campaignCreated:
+        $ref: '#/components/messages/CampaignCreated'
+
+  marketingAudienceDefined:
+    address: crm.marketing.segment.defined
+    description: |
+      Published when a new audience segment is created.
+      Primarily for internal Marketing analytics.
+    messages:
+      audienceDefined:
+        $ref: '#/components/messages/AudienceDefined'
+
+  marketingCampaignScheduled:
+    address: crm.marketing.campaign.scheduled
+    description: |
+      Published when a campaign's send date/time is set.
+      Consumed by Communication to schedule message delivery.
+    messages:
+      campaignScheduled:
+        $ref: '#/components/messages/CampaignScheduled'
+
+  marketingCampaignLaunched:
+    address: crm.marketing.campaign.launched
+    description: |
+      Published when a campaign is activated and delivery begins.
+      Consumed by Communication to start outbound delivery.
+    messages:
+      campaignLaunched:
+        $ref: '#/components/messages/CampaignLaunched'
+
+  marketingCampaignPaused:
+    address: crm.marketing.campaign.paused
+    description: |
+      Published when an active campaign is temporarily halted.
+      Consumed by Communication to stop outbound delivery.
+    messages:
+      campaignPaused:
+        $ref: '#/components/messages/CampaignPaused'
+
+  marketingEngagementRecorded:
+    address: crm.marketing.engagement.recorded
+    description: |
+      Published when a customer interaction (open, click, bounce,
+      unsubscribe) is logged. Consumed by CIAM for lead scoring.
+    messages:
+      engagementRecorded:
+        $ref: '#/components/messages/EngagementRecorded'
+
+  marketingConversionDeclared:
+    address: crm.marketing.conversion.declared
+    description: |
+      Published when a conversion is attributed to a campaign.
+      Consumed by Sales (opportunity attribution) and CIAM (scoring).
+    messages:
+      conversionDeclared:
+        $ref: '#/components/messages/ConversionDeclared'
+
+  marketingAbWinnerSelected:
+    address: crm.marketing.ab-test.winner-selected
+    description: |
+      Published when an A/B test winner is chosen. Consumed by
+      Communication to apply the winning variant to remaining audience.
+    messages:
+      abWinnerSelected:
+        $ref: '#/components/messages/ABWinnerSelected'
+
+  marketingCampaignCompleted:
+    address: crm.marketing.campaign.completed
+    description: |
+      Published when a campaign is finalized and metrics are computed.
+      Consumed by Communication for final report distribution.
+    messages:
+      campaignCompleted:
+        $ref: '#/components/messages/CampaignCompleted'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Communication Hub
+  # ═══════════════════════════════════════════════════════════════════════
+
+  communicationMessageSent:
+    address: crm.communication.message.sent
+    description: |
+      Published when a message is dispatched to a channel provider.
+      Consumed by Support (ticket thread tracking) and Sales
+      (interaction logging).
+    messages:
+      messageSent:
+        $ref: '#/components/messages/MessageSent'
+
+  communicationMessageDelivered:
+    address: crm.communication.message.delivered
+    description: |
+      Published when a channel provider confirms delivery.
+      Consumed by Support and Sales for interaction tracking.
+    messages:
+      messageDelivered:
+        $ref: '#/components/messages/MessageDelivered'
+
+  communicationMessageFailed:
+    address: crm.communication.message.failed
+    description: |
+      Published when a message delivery fails permanently.
+      Consumed by Communication for retry orchestration and alerting.
+    messages:
+      messageFailed:
+        $ref: '#/components/messages/MessageFailed'
+
+  communicationMessageRead:
+    address: crm.communication.message.read
+    description: |
+      Published when a read-receipt is received from the channel.
+      Consumed by Marketing (engagement metrics) and Sales.
+    messages:
+      messageRead:
+        $ref: '#/components/messages/MessageRead'
+
+  communicationInboundReceived:
+    address: crm.communication.message.inbound-received
+    description: |
+      Published when an inbound message is processed from a customer.
+      Consumed by Support (auto-create ticket) and Sales (log interaction).
+    messages:
+      inboundReceived:
+        $ref: '#/components/messages/InboundReceived'
+
+  communicationOptOutRecorded:
+    address: crm.communication.opt-out.recorded
+    description: |
+      Published when a customer opts out of a channel.
+      Consumed by CIAM to update consent records.
+    messages:
+      optOutRecorded:
+        $ref: '#/components/messages/OptOutRecorded'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Billing & Subscription
+  # ═══════════════════════════════════════════════════════════════════════
+
+  billingSubscriptionCreated:
+    address: crm.billing.subscription.created
+    description: |
+      Published when a new subscription is started. Consumed by
+      Communication for welcome/onboarding emails.
+    messages:
+      subscriptionCreated:
+        $ref: '#/components/messages/SubscriptionCreated'
+
+  billingSubscriptionPlanChanged:
+    address: crm.billing.subscription.plan-changed
+    description: |
+      Published when a subscription is upgraded or downgraded.
+      Consumed by Communication for confirmation notifications.
+    messages:
+      subscriptionPlanChanged:
+        $ref: '#/components/messages/SubscriptionPlanChanged'
+
+  billingSubscriptionCancelled:
+    address: crm.billing.subscription.cancelled
+    description: |
+      Published when a subscription is cancelled. Consumed by
+      Communication (confirmation) and CIAM (lifecycle stage update).
+    messages:
+      subscriptionCancelled:
+        $ref: '#/components/messages/SubscriptionCancelled'
+
+  billingInvoiceGenerated:
+    address: crm.billing.invoice.generated
+    description: |
+      Published when an invoice is created for a billing period.
+      Consumed by Communication for invoice delivery.
+    messages:
+      invoiceGenerated:
+        $ref: '#/components/messages/InvoiceGenerated'
+
+  billingInvoiceIssued:
+    address: crm.billing.invoice.issued
+    description: |
+      Published when an invoice is finalized and sent to the customer.
+      Consumed by Communication for delivery tracking.
+    messages:
+      invoiceIssued:
+        $ref: '#/components/messages/InvoiceIssued'
+
+  billingPaymentSucceeded:
+    address: crm.billing.payment.succeeded
+    description: |
+      Published when a payment is successfully processed. Consumed by
+      Communication (receipt) and CIAM (customer health scoring).
+    messages:
+      paymentSucceeded:
+        $ref: '#/components/messages/PaymentSucceeded'
+
+  billingPaymentFailed:
+    address: crm.billing.payment.failed
+    description: |
+      Published when a payment attempt fails. Consumed by
+      Communication for dunning notice delivery.
+    messages:
+      paymentFailed:
+        $ref: '#/components/messages/PaymentFailed'
+
+  billingCreditNoteIssued:
+    address: crm.billing.credit-note.issued
+    description: |
+      Published when a credit note is created for a refund or adjustment.
+      Consumed by Communication for customer notification.
+    messages:
+      creditNoteIssued:
+        $ref: '#/components/messages/CreditNoteIssued'
+
+  billingTrialStarted:
+    address: crm.billing.trial.started
+    description: |
+      Published when a trial period begins. Consumed by
+      Communication for welcome/onboarding flow.
+    messages:
+      trialStarted:
+        $ref: '#/components/messages/TrialStarted'
+
+  billingTrialExpiring:
+    address: crm.billing.trial.expiring
+    description: |
+      Published when a trial period is approaching its end.
+      Consumed by Communication for conversion reminder emails.
+    messages:
+      trialExpiring:
+        $ref: '#/components/messages/TrialExpiring'
+
+  billingDunningEscalated:
+    address: crm.billing.dunning.escalated
+    description: |
+      Published on each dunning retry attempt (1-4).
+      Consumed by Communication for escalation notice delivery.
+    messages:
+      dunningEscalated:
+        $ref: '#/components/messages/DunningEscalated'
+
+operations:
+  # ── CIAM publishes ────────────────────────────────────────────────────
+  publishCiamCustomerRegistered:
+    action: send
+    channel:
+      $ref: '#/channels/ciamCustomerRegistered'
+    summary: CIAM publishes CustomerRegistered
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamLeadQualified:
+    action: send
+    channel:
+      $ref: '#/channels/ciamLeadQualified'
+    summary: CIAM publishes LeadQualified
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamCustomersMerged:
+    action: send
+    channel:
+      $ref: '#/channels/ciamCustomersMerged'
+    summary: CIAM publishes CustomersMerged
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamConsentChanged:
+    action: send
+    channel:
+      $ref: '#/channels/ciamConsentChanged'
+    summary: CIAM publishes ConsentChanged
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamEmailVerified:
+    action: send
+    channel:
+      $ref: '#/channels/ciamEmailVerified'
+    summary: CIAM publishes EmailVerified
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamCustomerDeactivated:
+    action: send
+    channel:
+      $ref: '#/channels/ciamCustomerDeactivated'
+    summary: CIAM publishes CustomerDeactivated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCiamLifecycleStageChanged:
+    action: send
+    channel:
+      $ref: '#/channels/ciamLifecycleStageChanged'
+    summary: CIAM publishes LifecycleStageChanged
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  # ── Sales publishes ───────────────────────────────────────────────────
+  publishSalesOpportunityCreated:
+    action: send
+    channel:
+      $ref: '#/channels/salesOpportunityCreated'
+    summary: Sales publishes OpportunityCreated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesOpportunityStageAdvanced:
+    action: send
+    channel:
+      $ref: '#/channels/salesOpportunityStageAdvanced'
+    summary: Sales publishes OpportunityStageAdvanced
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesOpportunityClosed:
+    action: send
+    channel:
+      $ref: '#/channels/salesOpportunityClosed'
+    summary: Sales publishes OpportunityClosed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesQuoteGenerated:
+    action: send
+    channel:
+      $ref: '#/channels/salesQuoteGenerated'
+    summary: Sales publishes QuoteGenerated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesQuoteSent:
+    action: send
+    channel:
+      $ref: '#/channels/salesQuoteSent'
+    summary: Sales publishes QuoteSent
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesQuoteAccepted:
+    action: send
+    channel:
+      $ref: '#/channels/salesQuoteAccepted'
+    summary: Sales publishes QuoteAccepted
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesForecastUpdated:
+    action: send
+    channel:
+      $ref: '#/channels/salesForecastUpdated'
+    summary: Sales publishes ForecastUpdated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSalesOwnerReassigned:
+    action: send
+    channel:
+      $ref: '#/channels/salesOwnerReassigned'
+    summary: Sales publishes OwnerReassigned
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  # ── Support publishes ─────────────────────────────────────────────────
+  publishSupportTicketCreated:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketCreated'
+    summary: Support publishes TicketCreated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketAssigned:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketAssigned'
+    summary: Support publishes TicketAssigned
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketCommentAdded:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketCommentAdded'
+    summary: Support publishes TicketCommentAdded
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketPriorityChanged:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketPriorityChanged'
+    summary: Support publishes TicketPriorityChanged
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketEscalated:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketEscalated'
+    summary: Support publishes TicketEscalated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketResolved:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketResolved'
+    summary: Support publishes TicketResolved
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketClosed:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketClosed'
+    summary: Support publishes TicketClosed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportTicketReopened:
+    action: send
+    channel:
+      $ref: '#/channels/supportTicketReopened'
+    summary: Support publishes TicketReopened
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportSlaBreached:
+    action: send
+    channel:
+      $ref: '#/channels/supportSlaBreached'
+    summary: Support publishes SLABreached
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishSupportCsatSubmitted:
+    action: send
+    channel:
+      $ref: '#/channels/supportCsatSubmitted'
+    summary: Support publishes CSATSubmitted
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  # ── Marketing publishes ───────────────────────────────────────────────
+  publishMarketingCampaignCreated:
+    action: send
+    channel:
+      $ref: '#/channels/marketingCampaignCreated'
+    summary: Marketing publishes CampaignCreated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingAudienceDefined:
+    action: send
+    channel:
+      $ref: '#/channels/marketingAudienceDefined'
+    summary: Marketing publishes AudienceDefined
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingCampaignScheduled:
+    action: send
+    channel:
+      $ref: '#/channels/marketingCampaignScheduled'
+    summary: Marketing publishes CampaignScheduled
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingCampaignLaunched:
+    action: send
+    channel:
+      $ref: '#/channels/marketingCampaignLaunched'
+    summary: Marketing publishes CampaignLaunched
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingCampaignPaused:
+    action: send
+    channel:
+      $ref: '#/channels/marketingCampaignPaused'
+    summary: Marketing publishes CampaignPaused
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingEngagementRecorded:
+    action: send
+    channel:
+      $ref: '#/channels/marketingEngagementRecorded'
+    summary: Marketing publishes EngagementRecorded
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingConversionDeclared:
+    action: send
+    channel:
+      $ref: '#/channels/marketingConversionDeclared'
+    summary: Marketing publishes ConversionDeclared
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingAbWinnerSelected:
+    action: send
+    channel:
+      $ref: '#/channels/marketingAbWinnerSelected'
+    summary: Marketing publishes ABWinnerSelected
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishMarketingCampaignCompleted:
+    action: send
+    channel:
+      $ref: '#/channels/marketingCampaignCompleted'
+    summary: Marketing publishes CampaignCompleted
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  # ── Communication publishes ───────────────────────────────────────────
+  publishCommunicationMessageSent:
+    action: send
+    channel:
+      $ref: '#/channels/communicationMessageSent'
+    summary: Communication publishes MessageSent
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCommunicationMessageDelivered:
+    action: send
+    channel:
+      $ref: '#/channels/communicationMessageDelivered'
+    summary: Communication publishes MessageDelivered
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCommunicationMessageFailed:
+    action: send
+    channel:
+      $ref: '#/channels/communicationMessageFailed'
+    summary: Communication publishes MessageFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCommunicationMessageRead:
+    action: send
+    channel:
+      $ref: '#/channels/communicationMessageRead'
+    summary: Communication publishes MessageRead
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCommunicationInboundReceived:
+    action: send
+    channel:
+      $ref: '#/channels/communicationInboundReceived'
+    summary: Communication publishes InboundReceived
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishCommunicationOptOutRecorded:
+    action: send
+    channel:
+      $ref: '#/channels/communicationOptOutRecorded'
+    summary: Communication publishes OptOutRecorded
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  # ── Billing publishes ─────────────────────────────────────────────────
+  publishBillingSubscriptionCreated:
+    action: send
+    channel:
+      $ref: '#/channels/billingSubscriptionCreated'
+    summary: Billing publishes SubscriptionCreated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingSubscriptionPlanChanged:
+    action: send
+    channel:
+      $ref: '#/channels/billingSubscriptionPlanChanged'
+    summary: Billing publishes SubscriptionPlanChanged
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingSubscriptionCancelled:
+    action: send
+    channel:
+      $ref: '#/channels/billingSubscriptionCancelled'
+    summary: Billing publishes SubscriptionCancelled
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingInvoiceGenerated:
+    action: send
+    channel:
+      $ref: '#/channels/billingInvoiceGenerated'
+    summary: Billing publishes InvoiceGenerated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingInvoiceIssued:
+    action: send
+    channel:
+      $ref: '#/channels/billingInvoiceIssued'
+    summary: Billing publishes InvoiceIssued
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingPaymentSucceeded:
+    action: send
+    channel:
+      $ref: '#/channels/billingPaymentSucceeded'
+    summary: Billing publishes PaymentSucceeded
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingPaymentFailed:
+    action: send
+    channel:
+      $ref: '#/channels/billingPaymentFailed'
+    summary: Billing publishes PaymentFailed
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingCreditNoteIssued:
+    action: send
+    channel:
+      $ref: '#/channels/billingCreditNoteIssued'
+    summary: Billing publishes CreditNoteIssued
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingTrialStarted:
+    action: send
+    channel:
+      $ref: '#/channels/billingTrialStarted'
+    summary: Billing publishes TrialStarted
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingTrialExpiring:
+    action: send
+    channel:
+      $ref: '#/channels/billingTrialExpiring'
+    summary: Billing publishes TrialExpiring
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishBillingDunningEscalated:
+    action: send
+    channel:
+      $ref: '#/channels/billingDunningEscalated'
+    summary: Billing publishes DunningEscalated
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+components:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Messages — 43 Domain Events
+  # ═══════════════════════════════════════════════════════════════════════
+  messages:
+    # ── CIAM Events ──────────────────────────────────────────────────────
+    CustomerRegistered:
+      name: CustomerRegistered
+      title: Customer Registered
+      summary: A new contact has been registered in the system.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CustomerRegisteredPayload'
+
+    LeadQualified:
+      name: LeadQualified
+      title: Lead Qualified
+      summary: A lead has met the qualification score threshold.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/LeadQualifiedPayload'
+
+    CustomersMerged:
+      name: CustomersMerged
+      title: Customers Merged
+      summary: Two customer records have been deduplicated.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CustomersMergedPayload'
+
+    ConsentChanged:
+      name: ConsentChanged
+      title: Consent Changed
+      summary: Consent has been granted or revoked for a data-processing purpose.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/ConsentChangedPayload'
+
+    EmailVerified:
+      name: EmailVerified
+      title: Email Verified
+      summary: A contact's email address has been verified.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/EmailVerifiedPayload'
+
+    CustomerDeactivated:
+      name: CustomerDeactivated
+      title: Customer Deactivated
+      summary: A contact has been soft-deactivated.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CustomerDeactivatedPayload'
+
+    LifecycleStageChanged:
+      name: LifecycleStageChanged
+      title: Lifecycle Stage Changed
+      summary: A customer has transitioned to a new lifecycle stage.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/LifecycleStageChangedPayload'
+
+    # ── Sales Events ─────────────────────────────────────────────────────
+    OpportunityCreated:
+      name: OpportunityCreated
+      title: Opportunity Created
+      summary: A new sales opportunity has been opened.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/OpportunityCreatedPayload'
+
+    OpportunityStageAdvanced:
+      name: OpportunityStageAdvanced
+      title: Opportunity Stage Advanced
+      summary: An opportunity has moved to the next pipeline stage.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/OpportunityStageAdvancedPayload'
+
+    OpportunityClosed:
+      name: OpportunityClosed
+      title: Opportunity Closed
+      summary: An opportunity has been closed as won or lost.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/OpportunityClosedPayload'
+
+    QuoteGenerated:
+      name: QuoteGenerated
+      title: Quote Generated
+      summary: A quote with line items has been created for an opportunity.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/QuoteGeneratedPayload'
+
+    QuoteSent:
+      name: QuoteSent
+      title: Quote Sent
+      summary: A quote has been sent to the customer.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/QuoteSentPayload'
+
+    QuoteAccepted:
+      name: QuoteAccepted
+      title: Quote Accepted
+      summary: A customer has accepted a quote.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/QuoteAcceptedPayload'
+
+    ForecastUpdated:
+      name: ForecastUpdated
+      title: Forecast Updated
+      summary: The pipeline forecast has been recalculated.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/ForecastUpdatedPayload'
+
+    OwnerReassigned:
+      name: OwnerReassigned
+      title: Owner Reassigned
+      summary: An opportunity's sales rep has changed.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/OwnerReassignedPayload'
+
+    # ── Support Events ───────────────────────────────────────────────────
+    TicketCreated:
+      name: TicketCreated
+      title: Ticket Created
+      summary: A new support ticket has been opened.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketCreatedPayload'
+
+    TicketAssigned:
+      name: TicketAssigned
+      title: Ticket Assigned
+      summary: A ticket has been assigned to an agent or queue.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketAssignedPayload'
+
+    TicketCommentAdded:
+      name: TicketCommentAdded
+      title: Ticket Comment Added
+      summary: A comment has been added to a ticket.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketCommentAddedPayload'
+
+    TicketPriorityChanged:
+      name: TicketPriorityChanged
+      title: Ticket Priority Changed
+      summary: A ticket's priority level has been updated.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketPriorityChangedPayload'
+
+    TicketEscalated:
+      name: TicketEscalated
+      title: Ticket Escalated
+      summary: A ticket has been escalated to a higher tier.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketEscalatedPayload'
+
+    TicketResolved:
+      name: TicketResolved
+      title: Ticket Resolved
+      summary: A ticket has been marked as resolved.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketResolvedPayload'
+
+    TicketClosed:
+      name: TicketClosed
+      title: Ticket Closed
+      summary: A ticket has been finalized and closed.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketClosedPayload'
+
+    TicketReopened:
+      name: TicketReopened
+      title: Ticket Reopened
+      summary: A closed ticket has been reopened.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TicketReopenedPayload'
+
+    SLABreached:
+      name: SLABreached
+      title: SLA Breached
+      summary: An SLA deadline has been breached.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SLABreachedPayload'
+
+    CSATSubmitted:
+      name: CSATSubmitted
+      title: CSAT Submitted
+      summary: A customer satisfaction rating has been submitted.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CSATSubmittedPayload'
+
+    # ── Marketing Events ─────────────────────────────────────────────────
+    CampaignCreated:
+      name: CampaignCreated
+      title: Campaign Created
+      summary: A new marketing campaign has been defined.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CampaignCreatedPayload'
+
+    AudienceDefined:
+      name: AudienceDefined
+      title: Audience Defined
+      summary: A new audience segment has been created.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/AudienceDefinedPayload'
+
+    CampaignScheduled:
+      name: CampaignScheduled
+      title: Campaign Scheduled
+      summary: A campaign's send date/time has been set.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CampaignScheduledPayload'
+
+    CampaignLaunched:
+      name: CampaignLaunched
+      title: Campaign Launched
+      summary: A campaign has been activated and delivery has begun.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CampaignLaunchedPayload'
+
+    CampaignPaused:
+      name: CampaignPaused
+      title: Campaign Paused
+      summary: An active campaign has been temporarily halted.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CampaignPausedPayload'
+
+    EngagementRecorded:
+      name: EngagementRecorded
+      title: Engagement Recorded
+      summary: A customer interaction with a campaign has been logged.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/EngagementRecordedPayload'
+
+    ConversionDeclared:
+      name: ConversionDeclared
+      title: Conversion Declared
+      summary: A conversion has been attributed to a campaign.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/ConversionDeclaredPayload'
+
+    ABWinnerSelected:
+      name: ABWinnerSelected
+      title: A/B Winner Selected
+      summary: The winning variant of an A/B test has been chosen.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/ABWinnerSelectedPayload'
+
+    CampaignCompleted:
+      name: CampaignCompleted
+      title: Campaign Completed
+      summary: A campaign has been finalized and final metrics computed.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CampaignCompletedPayload'
+
+    # ── Communication Events ─────────────────────────────────────────────
+    MessageSent:
+      name: MessageSent
+      title: Message Sent
+      summary: A message has been dispatched to a channel provider.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/MessageSentPayload'
+
+    MessageDelivered:
+      name: MessageDelivered
+      title: Message Delivered
+      summary: A channel provider has confirmed message delivery.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/MessageDeliveredPayload'
+
+    MessageFailed:
+      name: MessageFailed
+      title: Message Failed
+      summary: A message delivery has failed permanently.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/MessageFailedPayload'
+
+    MessageRead:
+      name: MessageRead
+      title: Message Read
+      summary: A read-receipt has been received for a message.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/MessageReadPayload'
+
+    InboundReceived:
+      name: InboundReceived
+      title: Inbound Received
+      summary: An inbound message from a customer has been processed.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/InboundReceivedPayload'
+
+    OptOutRecorded:
+      name: OptOutRecorded
+      title: Opt-Out Recorded
+      summary: A customer has opted out of a communication channel.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/OptOutRecordedPayload'
+
+    # ── Billing Events ───────────────────────────────────────────────────
+    SubscriptionCreated:
+      name: SubscriptionCreated
+      title: Subscription Created
+      summary: A new subscription has been started.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SubscriptionCreatedPayload'
+
+    SubscriptionPlanChanged:
+      name: SubscriptionPlanChanged
+      title: Subscription Plan Changed
+      summary: A subscription has been upgraded or downgraded.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SubscriptionPlanChangedPayload'
+
+    SubscriptionCancelled:
+      name: SubscriptionCancelled
+      title: Subscription Cancelled
+      summary: A subscription has been cancelled.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/SubscriptionCancelledPayload'
+
+    InvoiceGenerated:
+      name: InvoiceGenerated
+      title: Invoice Generated
+      summary: An invoice has been created for a billing period.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/InvoiceGeneratedPayload'
+
+    InvoiceIssued:
+      name: InvoiceIssued
+      title: Invoice Issued
+      summary: An invoice has been finalized and sent to the customer.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/InvoiceIssuedPayload'
+
+    PaymentSucceeded:
+      name: PaymentSucceeded
+      title: Payment Succeeded
+      summary: A payment has been successfully processed.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/PaymentSucceededPayload'
+
+    PaymentFailed:
+      name: PaymentFailed
+      title: Payment Failed
+      summary: A payment attempt has failed.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/PaymentFailedPayload'
+
+    CreditNoteIssued:
+      name: CreditNoteIssued
+      title: Credit Note Issued
+      summary: A credit note has been created for a refund or adjustment.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/CreditNoteIssuedPayload'
+
+    TrialStarted:
+      name: TrialStarted
+      title: Trial Started
+      summary: A trial period has begun.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TrialStartedPayload'
+
+    TrialExpiring:
+      name: TrialExpiring
+      title: Trial Expiring
+      summary: A trial period is approaching its end.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/TrialExpiringPayload'
+
+    DunningEscalated:
+      name: DunningEscalated
+      title: Dunning Escalated
+      summary: A dunning retry attempt has been escalated.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        $ref: '#/components/schemas/DunningEscalatedPayload'
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Schemas
+  # ═══════════════════════════════════════════════════════════════════════
+  schemas:
+    # ── Shared Value Objects ─────────────────────────────────────────────
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0
+          example: 1299.99
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 currency code.
+          example: "USD"
+
+    # ── Standard Event Envelope Headers ──────────────────────────────────
+    EventHeaders:
+      type: object
+      description: |
+        Standard headers present on every domain event message.
+        Implementations SHOULD propagate correlationId and causationId
+        from the triggering command for distributed tracing.
+      required:
+        - eventId
+        - eventType
+        - source
+        - timestamp
+        - correlationId
+        - schemaVersion
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Unique identifier for this event instance.
+        eventType:
+          type: string
+          description: |
+            Fully qualified event type name, e.g.
+            "crm.ciam.customer.registered.v1"
+        source:
+          type: string
+          description: |
+            Originating bounded context. One of: ciam, sales, support,
+            marketing, communication, billing.
+          enum: [ciam, sales, support, marketing, communication, billing]
+        timestamp:
+          type: string
+          format: date-time
+          description: When the event was emitted (ISO 8601).
+        correlationId:
+          type: string
+          format: uuid
+          description: |
+            Traces back to the originating command or external request.
+            Propagate across all downstream events.
+        causationId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The eventId of the event that caused this one. Null for
+            root events triggered by commands.
+        schemaVersion:
+          type: string
+          pattern: '^\d+\.\d+$'
+          description: Schema version for this event type (e.g., "1.0").
+        idempotencyKey:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Idempotency key from the originating command. Consumers use
+            this to deduplicate processing.
+
+    # ── CIAM Event Payloads ──────────────────────────────────────────────
+    CustomerRegisteredPayload:
+      type: object
+      required: [customerId, contactId, lifecycleStage, source, registeredAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        lifecycleStage:
+          type: string
+          enum: [lead]
+        source:
+          type: string
+          description: Origin of registration (e.g., website, import, referral).
+        registeredAt:
+          type: string
+          format: date-time
+
+    LeadQualifiedPayload:
+      type: object
+      required: [customerId, contactId, previousStage, score, qualifiedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        previousStage:
+          type: string
+          enum: [lead]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: The score at time of qualification.
+        qualifiedAt:
+          type: string
+          format: date-time
+
+    CustomersMergedPayload:
+      type: object
+      required: [survivingContactId, mergedContactId, mergedAt]
+      properties:
+        survivingContactId:
+          type: string
+          format: uuid
+          description: The contact that remains active.
+        mergedContactId:
+          type: string
+          format: uuid
+          description: The contact that was deactivated and merged.
+        mergedAt:
+          type: string
+          format: date-time
+
+    ConsentChangedPayload:
+      type: object
+      required: [customerId, contactId, purpose, granted, changedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          description: Data-processing purpose (e.g., email_marketing, analytics).
+        granted:
+          type: boolean
+        changedAt:
+          type: string
+          format: date-time
+
+    EmailVerifiedPayload:
+      type: object
+      required: [customerId, contactId, verifiedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        verifiedAt:
+          type: string
+          format: date-time
+
+    CustomerDeactivatedPayload:
+      type: object
+      required: [customerId, contactId, deactivatedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        deactivatedAt:
+          type: string
+          format: date-time
+
+    LifecycleStageChangedPayload:
+      type: object
+      required: [customerId, contactId, previousStage, newStage, changedAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        contactId:
+          type: string
+          format: uuid
+        previousStage:
+          type: string
+          enum: [lead, qualified, opportunity, customer, advocate, churned]
+        newStage:
+          type: string
+          enum: [lead, qualified, opportunity, customer, advocate, churned]
+        changedAt:
+          type: string
+          format: date-time
+
+    # ── Sales Event Payloads ─────────────────────────────────────────────
+    OpportunityCreatedPayload:
+      type: object
+      required: [opportunityId, customerId, accountId, name, amount, createdAt]
+      properties:
+        opportunityId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        createdAt:
+          type: string
+          format: date-time
+
+    OpportunityStageAdvancedPayload:
+      type: object
+      required: [opportunityId, previousStage, newStage, advancedAt]
+      properties:
+        opportunityId:
+          type: string
+          format: uuid
+        previousStage:
+          type: string
+        newStage:
+          type: string
+        advancedAt:
+          type: string
+          format: date-time
+
+    OpportunityClosedPayload:
+      type: object
+      required: [opportunityId, outcome, closedAt]
+      properties:
+        opportunityId:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [won, lost]
+        winLossReasonCategory:
+          type: string
+          enum: [price, features, timing, competitor, lost_contact, no_decision, other]
+          nullable: true
+        closedAt:
+          type: string
+          format: date-time
+
+    QuoteGeneratedPayload:
+      type: object
+      required: [quoteId, opportunityId, totalAmount, generatedAt]
+      properties:
+        quoteId:
+          type: string
+          format: uuid
+        opportunityId:
+          type: string
+          format: uuid
+        totalAmount:
+          $ref: '#/components/schemas/Money'
+        generatedAt:
+          type: string
+          format: date-time
+
+    QuoteSentPayload:
+      type: object
+      required: [quoteId, opportunityId, sentAt]
+      properties:
+        quoteId:
+          type: string
+          format: uuid
+        opportunityId:
+          type: string
+          format: uuid
+        sentAt:
+          type: string
+          format: date-time
+
+    QuoteAcceptedPayload:
+      type: object
+      required: [quoteId, opportunityId, customerId, acceptedAt]
+      properties:
+        quoteId:
+          type: string
+          format: uuid
+        opportunityId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        acceptedAt:
+          type: string
+          format: date-time
+
+    ForecastUpdatedPayload:
+      type: object
+      required: [totalWeightedRevenue, totalUnweightedRevenue, updatedAt]
+      properties:
+        totalWeightedRevenue:
+          $ref: '#/components/schemas/Money'
+        totalUnweightedRevenue:
+          $ref: '#/components/schemas/Money'
+        updatedAt:
+          type: string
+          format: date-time
+
+    OwnerReassignedPayload:
+      type: object
+      required: [opportunityId, previousOwnerId, newOwnerId, reassignedAt]
+      properties:
+        opportunityId:
+          type: string
+          format: uuid
+        previousOwnerId:
+          type: string
+          format: uuid
+        newOwnerId:
+          type: string
+          format: uuid
+        reassignedAt:
+          type: string
+          format: date-time
+
+    # ── Support Event Payloads ───────────────────────────────────────────
+    TicketCreatedPayload:
+      type: object
+      required: [ticketId, requesterId, subject, priority, createdAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        requesterId:
+          type: string
+          format: uuid
+        subject:
+          type: string
+        priority:
+          type: string
+          enum: [Low, Medium, High, Critical]
+        queueId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    TicketAssignedPayload:
+      type: object
+      required: [ticketId, assignedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        assigneeId:
+          type: string
+          format: uuid
+          nullable: true
+        queueId:
+          type: string
+          format: uuid
+          nullable: true
+        assignedAt:
+          type: string
+          format: date-time
+
+    TicketCommentAddedPayload:
+      type: object
+      required: [ticketId, commentId, isInternal, createdAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        commentId:
+          type: string
+          format: uuid
+        isInternal:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    TicketPriorityChangedPayload:
+      type: object
+      required: [ticketId, previousPriority, newPriority, changedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        previousPriority:
+          type: string
+          enum: [Low, Medium, High, Critical]
+        newPriority:
+          type: string
+          enum: [Low, Medium, High, Critical]
+        changedAt:
+          type: string
+          format: date-time
+
+    TicketEscalatedPayload:
+      type: object
+      required: [ticketId, target, escalatedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        target:
+          type: string
+          description: Escalation target (e.g., tier2, manager).
+        escalatedAt:
+          type: string
+          format: date-time
+
+    TicketResolvedPayload:
+      type: object
+      required: [ticketId, resolvedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        resolvedAt:
+          type: string
+          format: date-time
+
+    TicketClosedPayload:
+      type: object
+      required: [ticketId, closedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        closedAt:
+          type: string
+          format: date-time
+
+    TicketReopenedPayload:
+      type: object
+      required: [ticketId, reason, reopenedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        reopenedAt:
+          type: string
+          format: date-time
+
+    SLABreachedPayload:
+      type: object
+      required: [ticketId, slaType, deadline, breachedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        slaType:
+          type: string
+          enum: [firstResponse, resolution]
+        deadline:
+          type: string
+          format: date-time
+        breachedAt:
+          type: string
+          format: date-time
+
+    CSATSubmittedPayload:
+      type: object
+      required: [ticketId, customerId, score, submittedAt]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+        submittedAt:
+          type: string
+          format: date-time
+
+    # ── Marketing Event Payloads ─────────────────────────────────────────
+    CampaignCreatedPayload:
+      type: object
+      required: [campaignId, name, channel, audienceId, createdAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        channel:
+          type: string
+          enum: [Email, SMS, Push, Social, DirectMail]
+        audienceId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    AudienceDefinedPayload:
+      type: object
+      required: [segmentId, name, isDynamic, createdAt]
+      properties:
+        segmentId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isDynamic:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    CampaignScheduledPayload:
+      type: object
+      required: [campaignId, scheduledStartDate, scheduledEndDate, scheduledAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        scheduledStartDate:
+          type: string
+          format: date-time
+        scheduledEndDate:
+          type: string
+          format: date-time
+        scheduledAt:
+          type: string
+          format: date-time
+
+    CampaignLaunchedPayload:
+      type: object
+      required: [campaignId, launchedAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        launchedAt:
+          type: string
+          format: date-time
+
+    CampaignPausedPayload:
+      type: object
+      required: [campaignId, pausedAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        pausedAt:
+          type: string
+          format: date-time
+
+    EngagementRecordedPayload:
+      type: object
+      required: [engagementId, campaignId, customerId, type, occurredAt]
+      properties:
+        engagementId:
+          type: string
+          format: uuid
+        campaignId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [Open, Click, Bounce, Unsubscribe]
+        occurredAt:
+          type: string
+          format: date-time
+
+    ConversionDeclaredPayload:
+      type: object
+      required: [campaignId, customerId, occurredAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        revenue:
+          $ref: '#/components/schemas/Money'
+        occurredAt:
+          type: string
+          format: date-time
+
+    ABWinnerSelectedPayload:
+      type: object
+      required: [campaignId, winningVariantId, selectedAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        winningVariantId:
+          type: string
+          format: uuid
+        selectedAt:
+          type: string
+          format: date-time
+
+    CampaignCompletedPayload:
+      type: object
+      required: [campaignId, totalSent, totalConversions, completedAt]
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        totalSent:
+          type: integer
+          minimum: 0
+        totalConversions:
+          type: integer
+          minimum: 0
+        completedAt:
+          type: string
+          format: date-time
+
+    # ── Communication Event Payloads ─────────────────────────────────────
+    MessageSentPayload:
+      type: object
+      required: [messageId, customerId, channel, direction, sentAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [Email, SMS, Push, InApp, WhatsApp]
+        direction:
+          type: string
+          enum: [Inbound, Outbound]
+        sentAt:
+          type: string
+          format: date-time
+
+    MessageDeliveredPayload:
+      type: object
+      required: [messageId, customerId, channel, deliveredAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [Email, SMS, Push, InApp, WhatsApp]
+        deliveredAt:
+          type: string
+          format: date-time
+
+    MessageFailedPayload:
+      type: object
+      required: [messageId, customerId, channel, errorCode, failedAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [Email, SMS, Push, InApp, WhatsApp]
+        errorCode:
+          type: string
+          nullable: true
+        failedAt:
+          type: string
+          format: date-time
+
+    MessageReadPayload:
+      type: object
+      required: [messageId, customerId, channel, readAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [Email, SMS, Push, InApp, WhatsApp]
+        readAt:
+          type: string
+          format: date-time
+
+    InboundReceivedPayload:
+      type: object
+      required: [messageId, customerId, channel, receivedAt]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [Email, SMS, Push, InApp, WhatsApp]
+        receivedAt:
+          type: string
+          format: date-time
+
+    OptOutRecordedPayload:
+      type: object
+      required: [customerId, channel, optedOutAt]
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          enum: [Email, SMS, Push, InApp, WhatsApp]
+        optedOutAt:
+          type: string
+          format: date-time
+
+    # ── Billing Event Payloads ───────────────────────────────────────────
+    SubscriptionCreatedPayload:
+      type: object
+      required: [subscriptionId, customerId, planId, billingCycle, startDate, createdAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+          format: uuid
+        billingCycle:
+          type: string
+          enum: [Monthly, Quarterly, Annual]
+        startDate:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+
+    SubscriptionPlanChangedPayload:
+      type: object
+      required: [subscriptionId, previousPlanId, newPlanId, changedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        previousPlanId:
+          type: string
+          format: uuid
+        newPlanId:
+          type: string
+          format: uuid
+        changedAt:
+          type: string
+          format: date-time
+
+    SubscriptionCancelledPayload:
+      type: object
+      required: [subscriptionId, cancelAt, cancelledAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        cancelAt:
+          type: string
+          enum: [immediately, nextCycle]
+        cancelledAt:
+          type: string
+          format: date-time
+
+    InvoiceGeneratedPayload:
+      type: object
+      required: [invoiceId, subscriptionId, customerId, total, dueDate, generatedAt]
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        total:
+          $ref: '#/components/schemas/Money'
+        dueDate:
+          type: string
+          format: date
+        generatedAt:
+          type: string
+          format: date-time
+
+    InvoiceIssuedPayload:
+      type: object
+      required: [invoiceId, subscriptionId, customerId, issuedAt]
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        subscriptionId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        issuedAt:
+          type: string
+          format: date-time
+
+    PaymentSucceededPayload:
+      type: object
+      required: [paymentId, invoiceId, amount, processedAt]
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        processedAt:
+          type: string
+          format: date-time
+
+    PaymentFailedPayload:
+      type: object
+      required: [paymentId, invoiceId, amount, failedAt]
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        failedAt:
+          type: string
+          format: date-time
+
+    CreditNoteIssuedPayload:
+      type: object
+      required: [creditNoteId, invoiceId, amount, issuedAt]
+      properties:
+        creditNoteId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        issuedAt:
+          type: string
+          format: date-time
+
+    TrialStartedPayload:
+      type: object
+      required: [subscriptionId, trialDays, trialEndDate, startedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        trialDays:
+          type: integer
+          minimum: 1
+        trialEndDate:
+          type: string
+          format: date
+        startedAt:
+          type: string
+          format: date-time
+
+    TrialExpiringPayload:
+      type: object
+      required: [subscriptionId, trialEndDate, daysRemaining]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        trialEndDate:
+          type: string
+          format: date
+        daysRemaining:
+          type: integer
+          minimum: 0
+
+    DunningEscalatedPayload:
+      type: object
+      required: [subscriptionId, invoiceId, attempt, escalatedAt]
+      properties:
+        subscriptionId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 4
+        escalatedAt:
+          type: string
+          format: date-time
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Operation Traits
+  # ═══════════════════════════════════════════════════════════════════════
+  operationTraits:
+    kafka:
+      bindings:
+        kafka:
+          clientId: crm-domain-events
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Security
+  # ═══════════════════════════════════════════════════════════════════════
+  securitySchemes:
+    saslScram:
+      type: userPassword
+      description: SASL/SCRAM-SHA-256 authentication for Kafka brokers.

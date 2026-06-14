@@ -1,0 +1,437 @@
+# Distributed Caching Specification
+# Redis Cluster — Event-Driven + TTL Hybrid Invalidation
+# Version: 1.0.0
+
+meta:
+  engine: Redis 7.x Cluster
+  topology: Distributed cache layer (dedicated cluster)
+  invalidation: Event-driven + TTL hybrid
+  rationale: |
+    CRMs are read-heavy: customer profiles, pipeline views, and dashboard
+    queries hit the same aggregates repeatedly. A dedicated Redis cluster
+    sits between services and their databases, serving cached aggregates
+    with sub-millisecond latency. Event-driven invalidation ensures
+    consistency when data changes; TTL provides a safety net for missed
+    events.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Redis Cluster Configuration
+# ═══════════════════════════════════════════════════════════════════════
+cluster:
+  deployment:
+    mode: in-cluster
+    platform: Kubernetes
+    namespace: crm-infrastructure
+    nodes: 6 (3 masters + 3 replicas)
+    resources_per_node:
+      requests: { cpu: "500m", memory: "4Gi" }
+      limits: { cpu: "2", memory: "8Gi" }
+    maxmemory_policy: allkeys-lru
+    persistence: AOF with fsync everysec
+    notes: |
+      Each BC service connects to the cluster via a Redis client with
+      cluster-aware routing. No cross-BC key namespace collisions because
+      all keys are prefixed by BC.
+
+  connection:
+    url: redis://redis-cluster.crm-infrastructure.svc.cluster.local:6379
+    timeout_ms: 200
+    retry:
+      max_attempts: 3
+      backoff_ms: 100
+    pool:
+      min_idle: 5
+      max_active: 50
+
+# ═══════════════════════════════════════════════════════════════════════
+# Key Naming Convention
+# ═══════════════════════════════════════════════════════════════════════
+key_convention:
+  pattern: "crm:{bc}:{aggregate}:{id}"
+  examples:
+    - "crm:ciam:customer:550e8400-e29b-41d4-a716-446655440000"
+    - "crm:sales:opportunity:6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+    - "crm:support:ticket:12345678-1234-5678-1234-567812345678"
+  list_pattern: "crm:{bc}:{aggregate}:list:{query_hash}"
+  notes: |
+    Query-result caches use a SHA-256 hash of the sorted query parameters
+    as the key suffix. This prevents key explosion while ensuring cache
+    hits for identical queries.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Cache Templates Per Bounded Context
+# ═══════════════════════════════════════════════════════════════════════
+templates:
+
+  # ── CIAM ──────────────────────────────────────────────────────────
+  ciam:
+    description: |
+      Customer profiles are the most frequently accessed data in the
+      system. Every other BC reads customer data. Cache hit rate target: >95%.
+
+    entries:
+      - key: "crm:ciam:customer:{customer_id}"
+        ttl_seconds: 300
+        type: Hash
+        fields:
+          - customer_id
+          - display_name
+          - lifecycle_stage
+          - score
+          - is_active
+        invalidated_by:
+          - crm.ciam.customer.registered
+          - crm.ciam.customer.deactivated
+          - crm.ciam.lifecycle-stage.changed
+          - crm.ciam.customer.merged
+        notes: Core customer record. Short TTL because lifecycle changes frequently.
+
+      - key: "crm:ciam:contact:{contact_id}"
+        ttl_seconds: 300
+        type: Hash
+        fields:
+          - contact_id
+          - customer_id
+          - first_name
+          - last_name
+          - title
+          - is_verified
+        invalidated_by:
+          - crm.ciam.customer.registered
+          - crm.ciam.email.verified
+          - crm.ciam.customer.merged
+
+      - key: "crm:ciam:account:{account_id}"
+        ttl_seconds: 600
+        type: Hash
+        fields:
+          - account_id
+          - company_name
+          - industry
+          - size
+        invalidated_by:
+          - crm.ciam.customer.merged
+        notes: Accounts change less frequently. Longer TTL acceptable.
+
+      - key: "crm:ciam:consent:{contact_id}"
+        ttl_seconds: 120
+        type: Hash
+        fields:
+          - contact_id
+          - consents (JSON: purpose → {granted, granted_at})
+        invalidated_by:
+          - crm.ciam.consent.changed
+        notes: Short TTL because consent changes affect communication eligibility.
+
+  # ── Sales ─────────────────────────────────────────────────────────
+  sales:
+    description: |
+      Pipeline views and opportunity lists are read-heavy. Forecast
+      data is computed and cached to avoid expensive aggregations.
+
+    entries:
+      - key: "crm:sales:opportunity:{opportunity_id}"
+        ttl_seconds: 180
+        type: Hash
+        fields:
+          - opportunity_id
+          - customer_id
+          - account_id
+          - name
+          - stage
+          - amount_value
+          - amount_currency
+          - probability
+          - expected_close_date
+          - owner_id
+          - outcome
+        invalidated_by:
+          - crm.sales.opportunity.created
+          - crm.sales.opportunity.stage-advanced
+          - crm.sales.opportunity.closed
+          - crm.sales.opportunity.owner-reassigned
+
+      - key: "crm:sales:opportunity:list:{query_hash}"
+        ttl_seconds: 60
+        type: String
+        invalidated_by:
+          - crm.sales.opportunity.created
+          - crm.sales.opportunity.stage-advanced
+          - crm.sales.opportunity.closed
+          - crm.sales.opportunity.owner-reassigned
+        notes: Pipeline list views. Very short TTL — lists change often.
+
+      - key: "crm:sales:forecast:{owner_id}"
+        ttl_seconds: 120
+        type: Hash
+        fields:
+          - total_weighted_revenue
+          - total_unweighted_revenue
+          - by_stage (JSON)
+        invalidated_by:
+          - crm.sales.forecast.updated
+          - crm.sales.opportunity.stage-advanced
+          - crm.sales.opportunity.closed
+
+      - key: "crm:sales:quote:{quote_id}"
+        ttl_seconds: 300
+        type: Hash
+        fields:
+          - quote_id
+          - opportunity_id
+          - status
+          - total_amount_value
+          - total_amount_currency
+          - valid_until
+        invalidated_by:
+          - crm.sales.quote.generated
+          - crm.sales.quote.sent
+          - crm.sales.quote.accepted
+
+  # ── Support ───────────────────────────────────────────────────────
+  support:
+    description: |
+      Ticket detail views and queue lists are the primary read patterns.
+      SLA status is computed and cached for dashboard views.
+
+    entries:
+      - key: "crm:support:ticket:{ticket_id}"
+        ttl_seconds: 120
+        type: Hash
+        fields:
+          - ticket_id
+          - requester_id
+          - assignee_id
+          - subject
+          - status
+          - priority
+          - queue_id
+          - sla_deadline
+          - created_at
+        invalidated_by:
+          - crm.support.ticket.created
+          - crm.support.ticket.assigned
+          - crm.support.ticket.priority-changed
+          - crm.support.ticket.escalated
+          - crm.support.ticket.resolved
+          - crm.support.ticket.closed
+          - crm.support.ticket.reopened
+
+      - key: "crm:support:queue:{queue_id}:tickets"
+        ttl_seconds: 30
+        type: Sorted Set (score = created_at, member = ticket_id)
+        invalidated_by:
+          - crm.support.ticket.created
+          - crm.support.ticket.assigned
+          - crm.support.ticket.closed
+        notes: Very short TTL — queue contents change rapidly.
+
+      - key: "crm:support:sla:{ticket_id}"
+        ttl_seconds: 60
+        type: Hash
+        fields:
+          - sla_deadline
+          - is_breached
+          - time_remaining_seconds
+        invalidated_by:
+          - crm.support.ticket.assigned
+          - crm.support.ticket.priority-changed
+          - crm.support.ticket.resolved
+          - crm.support.sla.breached
+
+  # ── Marketing ─────────────────────────────────────────────────────
+  marketing:
+    description: |
+      Campaign metrics and segment member lists are read-heavy.
+      Engagement data is write-heavy but read for dashboards.
+
+    entries:
+      - key: "crm:marketing:campaign:{campaign_id}"
+        ttl_seconds: 180
+        type: Hash
+        fields:
+          - campaign_id
+          - name
+          - status
+          - channel
+          - start_date
+          - end_date
+        invalidated_by:
+          - crm.marketing.campaign.created
+          - crm.marketing.campaign.scheduled
+          - crm.marketing.campaign.launched
+          - crm.marketing.campaign.paused
+          - crm.marketing.campaign.completed
+
+      - key: "crm:marketing:campaign:{campaign_id}:metrics"
+        ttl_seconds: 60
+        type: Hash
+        fields:
+          - sent
+          - delivered
+          - opened
+          - clicked
+          - bounced
+          - unsubscribed
+          - conversions
+        invalidated_by:
+          - crm.marketing.engagement.recorded
+          - crm.marketing.conversion.declared
+          - crm.marketing.campaign.completed
+        notes: Short TTL — metrics update frequently during active campaigns.
+
+      - key: "crm:marketing:segment:{segment_id}:members"
+        ttl_seconds: 300
+        type: Set (member = customer_id)
+        invalidated_by:
+          - crm.marketing.segment.defined
+          - crm.ciam.customer.registered
+          - crm.ciam.customer.deactivated
+        notes: Materialized segment membership. Invalidated on segment refresh or customer changes.
+
+  # ── Communication ─────────────────────────────────────────────────
+  communication:
+    description: |
+      Opt-out lookups are extremely high-frequency (checked on every
+      outbound send). Message thread views are read-heavy.
+
+    entries:
+      - key: "crm:communication:optout:{customer_id}"
+        ttl_seconds: 300
+        type: Set (member = channel)
+        invalidated_by:
+          - crm.communication.opt-out.recorded
+          - crm.ciam.consent.changed
+        notes: Critical path — checked before every outbound send. Must be fast.
+
+      - key: "crm:communication:thread:{thread_id}"
+        ttl_seconds: 120
+        type: List (message summaries, capped at 100)
+        invalidated_by:
+          - crm.communication.message.sent
+          - crm.communication.message.inbound-received
+
+      - key: "crm:communication:template:{template_id}"
+        ttl_seconds: 600
+        type: Hash
+        fields:
+          - template_id
+          - name
+          - channel
+          - subject
+          - body
+          - variables
+          - is_active
+        invalidated_by:
+          - (updated via API, cache invalidated on write-through)
+
+  # ── Billing ───────────────────────────────────────────────────────
+  billing:
+    description: |
+      Subscription status is checked frequently (entitlement checks).
+      Invoice lists are read-heavy for customer portals.
+
+    entries:
+      - key: "crm:billing:subscription:{subscription_id}"
+        ttl_seconds: 180
+        type: Hash
+        fields:
+          - subscription_id
+          - customer_id
+          - plan_id
+          - status
+          - billing_cycle
+          - next_billing_date
+          - trial_ends_at
+        invalidated_by:
+          - crm.billing.subscription.created
+          - crm.billing.subscription.plan-changed
+          - crm.billing.subscription.cancelled
+          - crm.billing.trial.started
+          - crm.billing.trial.expiring
+
+      - key: "crm:billing:customer:{subscription_id}:active"
+        ttl_seconds: 60
+        type: String
+        invalidated_by:
+          - crm.billing.subscription.created
+          - crm.billing.subscription.plan-changed
+          - crm.billing.subscription.cancelled
+        notes: Short TTL — entitlement checks are frequent and must be accurate.
+
+      - key: "crm:billing:invoice:{invoice_id}"
+        ttl_seconds: 300
+        type: Hash
+        fields:
+          - invoice_id
+          - subscription_id
+          - status
+          - total_value
+          - total_currency
+          - due_date
+          - paid_at
+        invalidated_by:
+          - crm.billing.invoice.generated
+          - crm.billing.invoice.issued
+          - crm.billing.payment.succeeded
+          - crm.billing.payment.failed
+
+# ═══════════════════════════════════════════════════════════════════════
+# Invalidation Strategy: Event-Driven + TTL Hybrid
+# ═══════════════════════════════════════════════════════════════════════
+invalidation:
+  strategy: event_driven_with_ttl_safety_net
+
+  event_driven:
+    mechanism: |
+      Each BC service subscribes to relevant domain events from Kafka.
+      On receiving an event, the service invalidates (deletes) the
+      corresponding cache key(s). The next read-through repopulates
+      the cache from the database.
+    consumer_groups:
+      pattern: "cache-invalidator-{bc}"
+      examples:
+        - cache-invalidator-ciam
+        - cache-invalidator-sales
+        - cache-invalidator-support
+    processing:
+      max_retry: 3
+      backoff: exponential (100ms, 500ms, 2500ms)
+      failure_action: log_alert (do not block event processing)
+      notes: |
+        Cache invalidation failures are non-fatal. The TTL safety net
+        ensures stale data is eventually refreshed. Alerts fire if
+        invalidation failure rate exceeds 1%.
+
+  ttl_safety_net:
+    mechanism: |
+      Every cache entry has a TTL. Even if an invalidation event is
+      missed (consumer lag, processing failure), the entry expires
+      and is repopulated from the database on next read.
+    max_staleness: |
+      The maximum staleness equals the TTL value. For critical data
+      (consent, opt-out, entitlements), TTL is 120s or less.
+
+  write_through:
+    mechanism: |
+      For high-consistency requirements (opt-out, consent), the service
+      writes to both the database AND the cache in the same transaction
+      boundary. This prevents the race condition where a read hits the
+      cache before the invalidation event is processed.
+    applies_to:
+      - crm:communication:optout:*
+      - crm:ciam:consent:*
+
+# ═══════════════════════════════════════════════════════════════════════
+# Cache Warming Strategy
+# ═══════════════════════════════════════════════════════════════════════
+warming:
+  on_deploy: |
+    On service deployment, warm the cache for:
+    - Active subscriptions (Billing)
+    - Open tickets assigned to online agents (Support)
+    - Active campaigns (Marketing)
+    - Customer profiles for recently active users (CIAM)
+  schedule: |
+    Background job runs every 5 minutes to repopulate entries nearing
+    TTL expiry for hot data (customer profiles, active subscriptions).

@@ -1,0 +1,1197 @@
+openapi: 3.1.0
+info:
+  title: CIAM — Customer Identity & Access Management API
+  description: |
+    Authoritative API for customer identity lifecycle, contact management,
+    organisational accounts, consent records, and authentication profiles.
+
+    This Bounded Context is the system of record for all person and organisation
+    data. Other contexts reference customers by ID but never duplicate their data.
+  version: 1.0.0
+  contact:
+    name: CRM Platform Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.crm.example.com/v1
+    description: Production
+  - url: https://staging-api.crm.example.com/v1
+    description: Staging
+
+tags:
+  - name: Contacts
+    description: Person records — leads, prospects, and established customers.
+  - name: Accounts
+    description: Organisational entities grouping contacts under shared commercial relationships.
+  - name: Consent
+    description: Data-processing consent grants and revocations.
+  - name: Lifecycle
+    description: Customer lifecycle stage transitions and lead qualification.
+  - name: Deduplication
+    description: Customer merge and deduplication operations.
+
+paths:
+  # ── Contacts ──────────────────────────────────────────────────────────
+  /contacts:
+    get:
+      operationId: listContacts
+      summary: List contacts
+      description: Retrieve a paginated list of contacts with optional filtering.
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: lifecycleStage
+          in: query
+          schema:
+            $ref: '#/components/schemas/LifecycleStage'
+        - name: email
+          in: query
+          description: Filter by exact email address.
+          schema:
+            type: string
+            format: email
+        - name: accountId
+          in: query
+          description: Filter by parent account.
+          schema:
+            type: string
+            format: uuid
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: isVerified
+          in: query
+          description: Filter by email verification status.
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, -createdAt, displayName, -displayName, lifecycleStage, -lifecycleStage]
+            default: -createdAt
+      responses:
+        '200':
+          description: Paginated list of contacts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContacts'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    post:
+      operationId: registerContact
+      summary: Register a new contact
+      description: |
+        Create a new Contact from inbound data (form submission, import, or API call).
+        Emits `CustomerRegistered` domain event on success.
+      tags: [Contacts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterContactRequest'
+      responses:
+        '201':
+          description: Contact created successfully.
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of the created contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /contacts/{contactId}:
+    get:
+      operationId: getContact
+      summary: Get a contact by ID
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      responses:
+        '200':
+          description: Contact details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateContact
+      summary: Update a contact
+      description: Partially update contact attributes. Only provided fields are mutated.
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContactRequest'
+      responses:
+        '200':
+          description: Contact updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+    delete:
+      operationId: deactivateCustomer
+      summary: Deactivate a contact
+      description: |
+        Soft-delete: marks the contact as inactive while retaining all history.
+        Emits `CustomerDeactivated` domain event.
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      responses:
+        '204':
+          description: Contact deactivated.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /contacts/{contactId}/verify-email:
+    post:
+      operationId: verifyEmailAddress
+      summary: Verify an email address
+      description: |
+        Mark a contact's primary email as verified after challenge/response confirmation.
+        Emits `EmailVerified` domain event.
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /contacts/{contactId}/score:
+    get:
+      operationId: getCustomerScore
+      summary: Get customer score
+      description: Retrieve the computed lead/customer score (0–100).
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      responses:
+        '200':
+          description: Customer score.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerScore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Accounts ──────────────────────────────────────────────────────────
+  /accounts:
+    get:
+      operationId: listAccounts
+      summary: List accounts
+      description: Retrieve a paginated list of organisational accounts.
+      tags: [Accounts]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+        - name: industry
+          in: query
+          schema:
+            type: string
+        - name: size
+          in: query
+          schema:
+            $ref: '#/components/schemas/CompanySize'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [companyName, -companyName, createdAt, -createdAt]
+            default: -createdAt
+      responses:
+        '200':
+          description: Paginated list of accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAccounts'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      operationId: createAccount
+      summary: Create a new account
+      description: Register a new organisational entity.
+      tags: [Accounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Account created.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /accounts/{accountId}:
+    get:
+      operationId: getAccount
+      summary: Get an account by ID
+      tags: [Accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountIdParam'
+      responses:
+        '200':
+          description: Account details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateAccount
+      summary: Update an account
+      tags: [Accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountRequest'
+      responses:
+        '200':
+          description: Account updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /accounts/{accountId}/contacts:
+    get:
+      operationId: listAccountContacts
+      summary: List contacts belonging to an account
+      tags: [Accounts]
+      parameters:
+        - $ref: '#/components/parameters/AccountIdParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Paginated contacts for this account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContacts'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Consent ───────────────────────────────────────────────────────────
+  /contacts/{contactId}/consents:
+    get:
+      operationId: listConsents
+      summary: List consent records for a contact
+      tags: [Consent]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+        - name: purpose
+          in: query
+          schema:
+            type: string
+        - name: granted
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of consent records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConsentRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      operationId: updateConsent
+      summary: Grant or revoke consent
+      description: |
+        Upsert a consent record for a specific purpose. Creates or replaces the
+        current consent state. Emits `ConsentChanged` domain event.
+      tags: [Consent]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConsentRequest'
+      responses:
+        '200':
+          description: Consent updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /contacts/{contactId}/consents/{purpose}:
+    delete:
+      operationId: revokeConsent
+      summary: Revoke consent for a purpose
+      description: |
+        Remove consent for a specific purpose. Emits `ConsentChanged` domain event
+        with `granted: false`.
+      tags: [Consent]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+        - name: purpose
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Consent revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Lifecycle ─────────────────────────────────────────────────────────
+  /contacts/{contactId}/lifecycle:
+    post:
+      operationId: changeLifecycleStage
+      summary: Change lifecycle stage
+      description: |
+        Transition a contact to a new lifecycle stage. Valid transitions are enforced
+        (e.g., Lead → Qualified → Opportunity → Customer → Advocate/Churned).
+        Emits `LifecycleStageChanged` domain event.
+      tags: [Lifecycle]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeLifecycleStageRequest'
+      responses:
+        '200':
+          description: Lifecycle stage changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /contacts/{contactId}/qualify:
+    post:
+      operationId: qualifyLead
+      summary: Qualify a lead
+      description: |
+        Promote a Lead to a Qualified Contact. Requires the customer score to meet
+        the minimum threshold. Emits `LeadQualified` domain event.
+      tags: [Lifecycle]
+      parameters:
+        - $ref: '#/components/parameters/ContactIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QualifyLeadRequest'
+      responses:
+        '200':
+          description: Lead qualified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ── Deduplication ─────────────────────────────────────────────────────
+  /contacts/merge:
+    post:
+      operationId: mergeCustomers
+      summary: Merge two customer records
+      description: |
+        Deduplicate two Customer records into one, resolving field-level conflicts.
+        The source record is deactivated. Emits `CustomersMerged` domain event.
+      tags: [Deduplication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MergeCustomersRequest'
+      responses:
+        '200':
+          description: Customers merged. Returns the surviving contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  # ── Batch Operations ──────────────────────────────────────────────────
+  /contacts/batch:
+    post:
+      operationId: batchImportContacts
+      summary: Batch import contacts
+      description: |
+        Import multiple contacts in a single request. Each entry is processed
+        independently; partial success is possible.
+      tags: [Contacts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchImportContactsRequest'
+      responses:
+        '207':
+          description: |
+            Multi-status response. Each entry indicates success or failure
+            for the corresponding input item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchImportResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+components:
+  # ── Parameters ────────────────────────────────────────────────────────
+  parameters:
+    ContactIdParam:
+      name: contactId
+      in: path
+      required: true
+      description: Unique identifier of the contact.
+      schema:
+        type: string
+        format: uuid
+
+    AccountIdParam:
+      name: accountId
+      in: path
+      required: true
+      description: Unique identifier of the account.
+      schema:
+        type: string
+        format: uuid
+
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-indexed).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+
+  # ── Schemas ───────────────────────────────────────────────────────────
+  schemas:
+    # Value Objects
+    EmailAddress:
+      type: object
+      required: [value, isPrimary]
+      properties:
+        value:
+          type: string
+          format: email
+          example: "jane@example.com"
+        isPrimary:
+          type: boolean
+          default: false
+        isVerified:
+          type: boolean
+          default: false
+
+    PhoneNumber:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+          example: "+1-555-0123"
+        countryCode:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          example: "US"
+        type:
+          type: string
+          enum: [mobile, landline, fax, other]
+          default: mobile
+
+    PostalAddress:
+      type: object
+      properties:
+        street:
+          type: string
+          example: "123 Main St"
+        city:
+          type: string
+          example: "San Francisco"
+        state:
+          type: string
+          example: "CA"
+        postalCode:
+          type: string
+          example: "94105"
+        country:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          example: "US"
+
+    ConsentRecord:
+      type: object
+      required: [purpose, granted, grantedAt]
+      properties:
+        purpose:
+          type: string
+          description: The data-processing purpose (e.g., email_marketing, analytics, third_party_sharing).
+          example: "email_marketing"
+        granted:
+          type: boolean
+        grantedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        source:
+          type: string
+          description: How the consent was collected (e.g., web_form, api, phone).
+          example: "web_form"
+
+    CustomerScore:
+      type: object
+      required: [value, computedAt]
+      properties:
+        value:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Lead/customer score from 0 (cold) to 100 (hot).
+        factors:
+          type: array
+          items:
+            type: object
+            required: [name, weight]
+            properties:
+              name:
+                type: string
+                example: "email_engagement"
+              weight:
+                type: number
+                format: float
+                minimum: 0
+                maximum: 1
+        computedAt:
+          type: string
+          format: date-time
+
+    LifecycleStage:
+      type: string
+      enum: [lead, qualified, opportunity, customer, advocate, churned]
+      description: |
+        The current phase of the customer relationship.
+        Valid transitions: lead → qualified → opportunity → customer → advocate/churned.
+
+    CompanySize:
+      type: string
+      enum: [micro, small, medium, mid_market, enterprise]
+
+    # Request Bodies
+    RegisterContactRequest:
+      type: object
+      required: [firstName, lastName, email]
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        title:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          format: email
+        phone:
+          $ref: '#/components/schemas/PhoneNumber'
+        address:
+          $ref: '#/components/schemas/PostalAddress'
+        accountId:
+          type: string
+          format: uuid
+          description: Associate with an existing account.
+        source:
+          type: string
+          description: Origin of the registration (e.g., website, import, referral).
+        consents:
+          type: array
+          items:
+            type: object
+            required: [purpose, granted]
+            properties:
+              purpose:
+                type: string
+              granted:
+                type: boolean
+              source:
+                type: string
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Arbitrary key-value pairs for extensibility.
+
+    UpdateContactRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        title:
+          type: string
+          maxLength: 200
+        phone:
+          $ref: '#/components/schemas/PhoneNumber'
+        address:
+          $ref: '#/components/schemas/PostalAddress'
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    VerifyEmailRequest:
+      type: object
+      required: [verificationToken]
+      properties:
+        verificationToken:
+          type: string
+          description: Token from the verification email link.
+
+    CreateAccountRequest:
+      type: object
+      required: [companyName]
+      properties:
+        companyName:
+          type: string
+          minLength: 1
+          maxLength: 300
+        industry:
+          type: string
+        size:
+          $ref: '#/components/schemas/CompanySize'
+        billingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        website:
+          type: string
+          format: uri
+        metadata:
+          type: object
+          additionalProperties: true
+
+    UpdateAccountRequest:
+      type: object
+      properties:
+        companyName:
+          type: string
+          minLength: 1
+          maxLength: 300
+        industry:
+          type: string
+        size:
+          $ref: '#/components/schemas/CompanySize'
+        billingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        website:
+          type: string
+          format: uri
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    UpdateConsentRequest:
+      type: object
+      required: [purpose, granted]
+      properties:
+        purpose:
+          type: string
+        granted:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        source:
+          type: string
+
+    ChangeLifecycleStageRequest:
+      type: object
+      required: [targetStage]
+      properties:
+        targetStage:
+          $ref: '#/components/schemas/LifecycleStage'
+        reason:
+          type: string
+          description: Optional reason for the transition.
+
+    QualifyLeadRequest:
+      type: object
+      properties:
+        scoreThreshold:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: |
+            Override the default minimum score threshold for qualification.
+            If omitted, the system default is used.
+        notes:
+          type: string
+
+    MergeCustomersRequest:
+      type: object
+      required: [sourceContactId, targetContactId]
+      properties:
+        sourceContactId:
+          type: string
+          format: uuid
+          description: The contact to merge FROM (will be deactivated).
+        targetContactId:
+          type: string
+          format: uuid
+          description: The contact to merge INTO (surviving record).
+        fieldResolutions:
+          type: object
+          description: |
+            Per-field resolution strategy. Keys are field names; values are
+            "source" or "target" indicating which record's value wins.
+            Unspecified fields default to "target".
+          additionalProperties:
+            type: string
+            enum: [source, target]
+
+    BatchImportContactsRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RegisterContactRequest'
+
+    # Response Bodies
+    ContactResponse:
+      type: object
+      required: [contactId, firstName, lastName, email, lifecycleStage, createdAt]
+      properties:
+        contactId:
+          type: string
+          format: uuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        displayName:
+          type: string
+          description: Computed full name.
+        title:
+          type: string
+          nullable: true
+        email:
+          $ref: '#/components/schemas/EmailAddress'
+        phone:
+          $ref: '#/components/schemas/PhoneNumber'
+        address:
+          $ref: '#/components/schemas/PostalAddress'
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+        lifecycleStage:
+          $ref: '#/components/schemas/LifecycleStage'
+        source:
+          type: string
+          nullable: true
+        score:
+          $ref: '#/components/schemas/CustomerScore'
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AccountResponse:
+      type: object
+      required: [accountId, companyName, createdAt]
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        companyName:
+          type: string
+        industry:
+          type: string
+          nullable: true
+        size:
+          $ref: '#/components/schemas/CompanySize'
+        billingAddress:
+          $ref: '#/components/schemas/PostalAddress'
+        website:
+          type: string
+          format: uri
+          nullable: true
+        contactCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    PaginatedContacts:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    PaginatedAccounts:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    BatchImportResult:
+      type: object
+      required: [total, succeeded, failed, results]
+      properties:
+        total:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            required: [status]
+            properties:
+              status:
+                type: string
+                enum: [success, error]
+              contactId:
+                type: string
+                format: uuid
+              error:
+                $ref: '#/components/schemas/ErrorDetail'
+
+    # Error Models
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error description.
+        target:
+          type: string
+          description: The field or parameter that caused the error.
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              message:
+                type: string
+              target:
+                type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+  # ── Responses ─────────────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: Invalid request — malformed parameters or body.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "invalid_request"
+              message: "Request validation failed."
+              details:
+                - code: "invalid_format"
+                  message: "Field 'email' must be a valid email address."
+                  target: "email"
+
+    Unauthorized:
+      description: Authentication required or invalid credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unauthorized"
+              message: "Valid authentication credentials are required."
+
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "not_found"
+              message: "Contact not found."
+              target: "contactId"
+
+    Conflict:
+      description: |
+        Resource conflict — duplicate email, invalid lifecycle transition,
+        or concurrent modification.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "conflict"
+              message: "A contact with this email address already exists."
+
+    UnprocessableEntity:
+      description: Request is well-formed but violates business rules.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unprocessable"
+              message: "Lead score (42) is below the qualification threshold (60)."
+
+  # ── Security ──────────────────────────────────────────────────────────
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token issued by the CIAM auth service.
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication.
+
+security:
+  - bearerAuth: []

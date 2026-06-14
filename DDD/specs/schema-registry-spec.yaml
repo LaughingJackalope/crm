@@ -1,0 +1,376 @@
+# Schema Registry & Serialization Specification
+# Apicurio Registry + Avro + Kafka
+# Version: 1.0.0
+
+meta:
+  registry: Apicurio Registry 3.x
+  serialization: Avro (binary)
+  transport: Kafka
+  compatibility: FULL (Backward + Forward)
+
+  rationale: |
+    Avro provides compact binary serialization with strong typing and
+    built-in schema evolution. Apicurio Registry (deployed in-cluster)
+    enforces compatibility rules at registration time, preventing a team
+    from deploying a schema change that would break downstream consumers.
+    FULL compatibility ensures both old and new consumers can read data
+    serialized with either schema version.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Registry Configuration
+# ═══════════════════════════════════════════════════════════════════════
+registry:
+  deployment:
+    mode: in-cluster
+    platform: Kubernetes (same cluster as services)
+    namespace: crm-infrastructure
+    resources:
+      requests: { cpu: "500m", memory: "1Gi" }
+      limits: { cpu: "2", memory: "4Gi" }
+      storage: "50Gi"
+    replicas: 3
+    notes: |
+      Apicurio stores schema metadata in its own PostgreSQL database.
+      Each BC team registers schemas via CI/CD pipeline, not manually.
+
+  api:
+    url: https://schema-registry.crm-infrastructure.svc.cluster.local
+    validation: enabled
+    mutable: false (schemas are immutable after registration)
+
+# ═══════════════════════════════════════════════════════════════════════
+# Global Compatibility Rules
+# ═══════════════════════════════════════════════════════════════════════
+compatibility:
+  default: FULL
+  rules:
+    FULL:
+      description: |
+        Backward + Forward compatible. A new schema can read data written
+        with the old schema AND the old schema can read data written with
+        the new schema. This is the strictest mode and prevents independent
+        team deployments from breaking each other.
+      allowed_changes:
+        - Adding a field with a default value
+        - Removing a field that had a default value
+        - Changing a field name (with alias support in Avro)
+        - Adding a new enum symbol (as long as old consumers can handle unknown)
+      forbidden_changes:
+        - Removing a required field without a default
+        - Changing a field type incompatibly (e.g., string → int)
+        - Removing an enum symbol that existing consumers may depend on
+        - Adding a required field without a default
+
+  per_group_overrides: {}
+    # All groups inherit FULL; no overrides needed at this stage.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Schema Group Naming Convention
+# ═════════════════════════════════════════════════════════════════════
+groups:
+  pattern: "crm.{bounded-context}"
+  examples:
+    - crm.ciam
+    - crm.sales
+    - crm.support
+    - crm.marketing
+    - crm.communication
+    - crm.billing
+
+# ═══════════════════════════════════════════════════════════════════════
+# Artifact Naming Convention
+# ═══════════════════════════════════════════════════════════════════════
+artifacts:
+  pattern: "{topic-name}-value"
+  examples:
+    - crm.ciam.customer.registered-value
+    - crm.sales.opportunity.closed-value
+    - crm.billing.payment.failed-value
+  version_pattern: "{major}.{minor}"
+  notes: |
+    Each topic has exactly one value schema artifact. Key schemas are
+    simple UUID strings (registered separately if needed).
+    New versions are additive-only under FULL compatibility.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Avro Schema Design Rules
+# ═══════════════════════════════════════════════════════════════════════
+avro_rules:
+  - "Every record must have a doc string describing its purpose"
+  - "All fields must have doc strings"
+  - "Use logical types for timestamps (timestamp-millis), decimals (bytes + scale), and UUIDs (string + logicalType uuid)"
+  - "Nullable fields use union types: [\"null\", \"<type>\"], with \"null\" first"
+  - "Default values use the union default; the default MUST match the first non-null type"
+  - "Enum types MUST include a \"UNKNOWN\" symbol (ordinal 0) for forward compatibility"
+  - "Field names use snake_case; record names use PascalCase"
+  - "No anonymous records — all records must be named types for registry clarity"
+
+# ║                                                                 ║
+# ║  Schema Registry — Per-BC Schema Inventory                     ║
+# ║                                                                 ║
+# ═══════════════════════════════════════════════════════════════════════
+
+schemas:
+
+  # ── CIAM Group: crm.ciam ─────────────────────────────────────────
+  crm.ciam:
+    group_id: crm.ciam
+    artifacts:
+      - artifact_id: crm.ciam.customer.registered-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.ciam.lead.qualified-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.ciam.customer.merged-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.ciam.consent.changed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.ciam.email.verified-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.ciam.customer.deactivated-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.ciam.lifecycle-stage.changed-value
+        first_version: "1.0"
+        current_version: "1.0"
+
+  # ── Sales Group: crm.sales ───────────────────────────────────────
+  crm.sales:
+    group_id: crm.sales
+    artifacts:
+      - artifact_id: crm.sales.opportunity.created-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.opportunity.stage-advanced-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.opportunity.closed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.quote.generated-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.quote.sent-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.quote.accepted-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.forecast.updated-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.sales.opportunity.owner-reassigned-value
+        first_version: "1.0"
+        current_version: "1.0"
+
+  # ── Support Group: crm.support ────────────────────────────────────
+  crm.support:
+    group_id: crm.support
+    artifacts:
+      - artifact_id: crm.support.ticket.created-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.assigned-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.comment-added-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.priority-changed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.escalated-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.resolved-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.closed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.ticket.reopened-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.sla.breached-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.support.csat.submitted-value
+        first_version: "1.0"
+        current_version: "1.0"
+
+  # ── Marketing Group: crm.marketing ────────────────────────────────
+  crm.marketing:
+    group_id: crm.marketing
+    artifacts:
+      - artifact_id: crm.marketing.campaign.created-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.segment.defined-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.campaign.scheduled-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.campaign.launched-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.campaign.paused-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.engagement.recorded-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.conversion.declared-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.ab-test.winner-selected-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.marketing.campaign.completed-value
+        first_version: "1.0"
+        current_version: "1.0"
+
+  # ── Communication Group: crm.communication ────────────────────────
+  crm.communication:
+    group_id: crm.communication
+    artifacts:
+      - artifact_id: crm.communication.message.sent-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.communication.message.delivered-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.communication.message.failed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.communication.message.read-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.communication.message.inbound-received-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.communication.opt-out.recorded-value
+        first_version: "1.0"
+        current_version: "1.0"
+
+  # ── Billing Group: crm.billing ────────────────────────────────────
+  crm.billing:
+    group_id: crm.billing
+    artifacts:
+      - artifact_id: crm.billing.subscription.created-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.subscription.plan-changed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.subscription.cancelled-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.invoice.generated-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.invoice.issued-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.payment.succeeded-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.payment.failed-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.credit-note.issued-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.trial.started-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.trial.expiring-value
+        first_version: "1.0"
+        current_version: "1.0"
+      - artifact_id: crm.billing.dunning.escalated-value
+        first_version: "1.0"
+        current_version: "1.0"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Kafka Topic Configuration (derived from AsyncAPI channels)
+# ═══════════════════════════════════════════════════════════════════════
+kafka_defaults:
+  partitions: 6
+  replication_factor: 3
+  retention_ms: 604800000  # 7 days
+  compression_type: lz4
+  cleanup_policy: delete
+  min_insync_replicas: 2
+  max_message_bytes: 1048576  # 1MB
+
+  # Topics with different configs
+  overrides:
+    "crm.marketing.engagement.recorded":
+      partitions: 12  # High throughput topic
+      retention_ms: 259200000  # 3 days
+    "crm.communication.message.sent":
+      partitions: 12  # High throughput topic
+    "crm.support.sla.breached":
+      retention_ms: 2592000000  # 30 days (needs longer retention for audits)
+
+# ═════════════════════════════════════════════════════════════════════
+# Dead Letter Topic Configuration
+# ═══════════════════════════════════════════════════════════════════════
+dead_letter:
+  pattern: "{origin-topic}.DLT"
+  retention_ms: 2592000000  # 30 days
+  partitions: 6
+  max_message_bytes: 2097152  # 2MB (includes original headers + error info)
+  notes: |
+    Every consumer group that processes domain events MUST configure a DLT.
+    DLT messages include the original event payload plus error context:
+    error_reason, failed_at, original_topic, consumer_group, retry_count.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Serialization vs. API Contracts — Shared Types
+# ═══════════════════════════════════════════════════════════════════════
+shared_types:
+  Money:
+    avro_type:
+      type: record
+      name: Money
+      fields:
+        - name: amount
+          type: { type: bytes, logicalType: decimal, precision: 14, scale: 2 }
+        - name: currency
+          type: { type: string, logicalType: uuid }
+          doc: "ISO 4217 currency code"
+    note: |
+      Mapped to OpenAPI Money schema for REST API consistency.
+      Avro uses decimal logical type for exact precision.
+
+  EventHeaders:
+    avro_type:
+      type: record
+      name: EventHeaders
+      fields:
+        - name: event_id
+          type: { type: string, logicalType: uuid }
+        - name: event_type
+          type: string
+        - name: source
+          type:
+            type: enum
+            name: Source
+            symbols: [ciam, sales, support, marketing, communication, billing]
+        - name: timestamp
+          type: { type: long, logicalType: timestamp-millis }
+        - name: correlation_id
+          type: { type: string, logicalType: uuid }
+        - name: causation_id
+          type: ["null", { type: string, logicalType: uuid }]
+          default: null
+        - name: schema_version
+          type: string
+        - name: idempotency_key
+          type: ["null", { type: string, logicalType: uuid }]
+          default: null

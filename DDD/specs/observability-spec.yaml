@@ -1,0 +1,394 @@
+# Observability & Telemetry Specification
+# OpenTelemetry + Prometheus + Grafana + Jaeger
+# Version: 1.0.0
+
+meta:
+  stack:
+    instrumentation: OpenTelemetry SDK (auto + manual)
+    metrics_backend: Prometheus
+    tracing_backend: Jaeger
+    dashboards: Grafana
+    log_aggregation: Grafana Loki (or ELK)
+  rationale: |
+    Vendor-neutral instrumentation via OpenTelemetry prevents lock-in.
+    Prometheus handles metrics scraping; Jaeger handles distributed traces;
+    Grafana unifies dashboards. All four golden signals (latency, traffic,
+    errors, saturation) are captured per-service, plus business-level SLIs
+    for product visibility.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Trace Propagation
+# ═══════════════════════════════════════════════════════════════════════
+trace_propagation:
+  standard: W3C Trace Context (traceparent, tracestate)
+  format: |
+    Every HTTP request and Kafka message carries W3C Trace Context headers.
+    The trace context flows: HTTP API → Service → Kafka → Consumer Service.
+    This enables end-to-end tracing of a customer action across all BCs.
+
+  http_headers:
+    incoming:
+      - traceparent
+      - tracestate
+      - X-Correlation-Id (legacy fallback)
+    outgoing:
+      - traceparent (propagated)
+      - tracestate (propagated)
+
+  kafka_headers:
+    mapping: |
+      W3C traceparent/tracestate are injected into Kafka message headers
+      by the OTel Kafka producer instrumentation. Consumers extract them
+      automatically, creating a child span linked to the producer's trace.
+    headers:
+      - traceparent
+      - tracestate
+      - X-Correlation-Id (from EventHeaders.correlationId)
+      - X-Event-Source (from EventHeaders.source)
+      - X-Event-Type (from EventHeaders.eventType)
+
+  baggage:
+    allowed_keys:
+      - crm.customer_id (for customer-scoped log filtering)
+      - crm.tenant_id (for multi-tenant isolation)
+      - crm.bounded_context (for routing)
+    notes: |
+      Baggage is used sparingly — only for context that needs to be
+      available in all spans without explicit propagation. Never put
+      PII in baggage.
+
+# ═══════════════════════════════════════════════════════════════════════
+# Span Naming & Attributes
+# ═══════════════════════════════════════════════════════════════════════
+spans:
+  naming:
+    http: "{HTTP_METHOD} {route}"  # e.g., "GET /opportunities/{id}"
+    kafka_consume: "consume {topic}"  # e.g., "consume crm.sales.opportunity.closed"
+    kafka_produce: "produce {topic}"
+    db_query: "{db.operation} {db.name}.{table}"  # e.g., "SELECT crm_ciam.customers"
+    cache_op: "{operation} {cache.key}"  # e.g., "GET crm:ciam:customer:550e..."
+
+  mandatory_attributes:
+    service:
+      - service.name
+      - service.version
+      - service.namespace (always "crm")
+      - deployment.environment (production | staging)
+    network:
+      - net.host.name
+      - net.peer.ip (for incoming requests)
+    crm_specific:
+      - crm.bounded_context (ciam | sales | support | marketing | communication | billing)
+      - crm.event_type (for Kafka spans, from EventHeaders.eventType)
+
+  conditional_attributes:
+    customer_scoped:
+      - crm.customer_id (when a specific customer is being operated on)
+    error_scoped:
+      - error.type
+      - error.message
+      - error.stack_trace (only in non-production)
+
+# ═══════════════════════════════════════════════════════════════════════
+# Metrics — Four Golden Signals (per service)
+# ═══════════════════════════════════════════════════════════════════════
+metrics:
+
+  # ── Request Latency ──────────────────────────────────────────────
+  request_latency:
+    type: Histogram
+    name: crm_http_request_duration_seconds
+    unit: seconds
+    labels:
+      - method
+      - route
+      - status_code
+      - bounded_context
+    buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+    description: HTTP request duration at the service boundary.
+    slo:
+      p50: 50ms
+      p95: 200ms
+      p99: 500ms
+
+  # ── Request Throughput ───────────────────────────────────────────
+  request_throughput:
+    type: Counter
+    name: crm_http_requests_total
+    labels:
+      - method
+      - route
+      - status_code
+      - bounded_context
+    description: Total HTTP requests received.
+
+  # ── Error Rate ────────────────────────────────────────────────────
+  error_rate:
+    type: Counter
+    name: crm_http_errors_total
+    labels:
+      - method
+      - route
+      - status_code
+      - error_type
+      - bounded_context
+    description: HTTP requests resulting in 4xx/5xx responses.
+    slo: "< 0.1% of total requests"
+
+  # ── Event Processing Latency ─────────────────────────────────────
+  event_latency:
+    type: Histogram
+    name: crm_event_processing_duration_seconds
+    unit: seconds
+    labels:
+      - event_type
+      - consumer_group
+      - bounded_context
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0]
+    description: Time from Kafka message receipt to processing completion.
+    slo:
+      p50: 20ms
+      p95: 100ms
+      p99: 500ms
+
+  # ── Event Throughput ─────────────────────────────────────────────
+  event_throughput:
+    type: Counter
+    name: crm_events_consumed_total
+    labels:
+      - event_type
+      - consumer_group
+      - bounded_context
+    description: Total events consumed from Kafka.
+
+  # ── DLQ Depth ────────────────────────────────────────────────────
+  dlq_depth:
+    type: Gauge
+    name: crm_dlq_messages_total
+    labels:
+      - topic
+      - consumer_group
+      - bounded_context
+    description: Current number of messages in the dead-letter queue.
+    alert_threshold: "> 0 for 5 minutes"
+    slo: "0 (zero tolerance for sustained DLQ growth)"
+
+  # ── Cache Hit Rate ───────────────────────────────────────────────
+  cache_hit_rate:
+    type: Counter
+    name: crm_cache_operations_total
+    labels:
+      - operation (hit | miss | set | invalidate)
+      - cache_prefix (e.g., ciam:customer)
+      - bounded_context
+    description: Cache operation counts for hit-rate calculation.
+    slo: "> 90% hit rate for customer profile lookups"
+
+  # ── Database Connection Pool ──────────────────────────────────────
+  db_pool_saturation:
+    type: Gauge
+    name: crm_db_connection_pool_active
+    labels:
+      - database
+      - bounded_context
+    description: Active database connections in the pool.
+    alert_threshold: "> 80% of max pool size"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Business-Level SLIs
+# ═══════════════════════════════════════════════════════════════════════
+business_slis:
+
+  # ── Sales Pipeline ───────────────────────────────────────────────
+  pipeline_velocity:
+    type: Histogram
+    name: crm_sales_stage_transition_duration_hours
+    unit: hours
+    labels:
+      - from_stage
+      - to_stage
+    description: Time spent in each pipeline stage before advancing.
+    slo: "Average < 72h in Proposal stage"
+
+  win_rate:
+    type: Gauge
+    name: crm_sales_win_rate_ratio
+    description: Rolling 30-day ratio of won / (won + lost) opportunities.
+    slo: "> 25%"
+
+  # ── Support ──────────────────────────────────────────────────────
+  first_response_time:
+    type: Histogram
+    name: crm_support_first_response_duration_minutes
+    unit: minutes
+    labels:
+      - priority
+    description: Time from ticket creation to first agent response.
+    slo:
+      Critical: "< 15 min"
+      High: "< 60 min"
+      Medium: "< 4 hours"
+      Low: "< 24 hours"
+
+  csat_score:
+    type: Gauge
+    name: crm_support_csat_average_score
+    description: Rolling 30-day average CSAT score.
+    slo: "> 4.0 (out of 5)"
+
+  sla_compliance:
+    type: Gauge
+    name: crm_support_sla_compliance_ratio
+    description: Percentage of tickets resolved within SLA deadline.
+    slo: "> 95%"
+
+  # ── Marketing ────────────────────────────────────────────────────
+  campaign_conversion_rate:
+    type: Gauge
+    name: crm_marketing_campaign_conversion_rate
+    labels:
+      - campaign_id
+      - channel
+    description: Conversions / delivered for a campaign.
+    slo: "Channel-dependent baseline"
+
+  # ── Billing ──────────────────────────────────────────────────────
+  mrr:
+    type: Gauge
+    name: crm_billing_monthly_recurring_revenue
+    unit: USD
+    description: Current monthly recurring revenue from active subscriptions.
+
+  churn_rate:
+    type: Gauge
+    name: crm_billing_churn_rate_ratio
+    description: Rolling 30-day subscription cancellations / active subscriptions.
+    slo: "< 5% monthly"
+
+  payment_failure_rate:
+    type: Gauge
+    name: crm_billing_payment_failure_rate
+    description: Failed payment attempts / total payment attempts.
+    slo: "< 3%"
+
+  # ── Communication ────────────────────────────────────────────────
+  message_delivery_rate:
+    type: Gauge
+    name: crm_communication_delivery_rate
+    labels:
+      - channel
+    description: Delivered / sent messages per channel.
+    slo: "> 98% per channel"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Grafana Dashboard Layout
+# ═══════════════════════════════════════════════════════════════════════
+dashboards:
+
+  platform_overview:
+    audience: SRE / Platform Engineering
+    panels:
+      - title: "Request Rate by BC"
+        metric: "sum(rate(crm_http_requests_total[5m])) by (bounded_context)"
+      - title: "Error Rate by BC"
+        metric: "sum(rate(crm_http_errors_total[5m])) by (bounded_context)"
+      - title: "P95 Latency by BC"
+        metric: "histogram_quantile(0.95, sum(rate(crm_http_request_duration_seconds_bucket[5m])) by (le, bounded_context))"
+      - title: "DLQ Depth"
+        metric: "crm_dlq_messages_total"
+      - title: "Event Processing P99"
+        metric: "histogram_quantile(0.99, sum(rate(crm_event_processing_duration_seconds_bucket[5m])) by (le, bounded_context))"
+      - title: "Cache Hit Rate"
+        metric: "sum(rate(crm_cache_operations_total{operation='hit'}[5m])) by (bounded_context) / sum(rate(crm_cache_operations_total[5m])) by (bounded_context)"
+
+  business_overview:
+    audience: Product / Leadership
+    panels:
+      - title: "Monthly Recurring Revenue"
+        metric: "crm_billing_monthly_recurring_revenue"
+      - title: "Sales Win Rate (30d)"
+        metric: "crm_sales_win_rate_ratio"
+      - title: "Support CSAT (30d)"
+        metric: "crm_support_csat_average_score"
+      - title: "SLA Compliance"
+        metric: "crm_support_sla_compliance_ratio"
+      - title: "Subscription Churn Rate"
+        metric: "crm_billing_churn_rate_ratio"
+      - title: "Message Delivery Rate by Channel"
+        metric: "crm_communication_delivery_rate"
+
+  per_service:
+    audience: BC Team
+    template: |
+      Each BC gets an identical dashboard template with:
+      - Request rate, latency (p50/p95/p99), error rate
+      - Event consumption rate and processing latency
+      - Cache hit rate
+      - DB connection pool saturation
+      - JVM/runtime metrics (GC, heap, threads)
+
+# ═══════════════════════════════════════════════════════════════════════
+# Alerting Rules
+# ═══════════════════════════════════════════════════════════════════════
+alerts:
+  critical:
+    - name: HighErrorRate
+      expr: "sum(rate(crm_http_errors_total{status_code=~'5..'}[5m])) by (bounded_context) / sum(rate(crm_http_requests_total[5m])) by (bounded_context) > 0.01"
+      for: 2m
+      severity: critical
+      summary: "Error rate > 1% for {{ $labels.bounded_context }}"
+
+    - name: DLQGrowing
+      expr: "crm_dlq_messages_total > 0"
+      for: 5m
+      severity: critical
+      summary: "Messages in DLQ for {{ $labels.topic }}"
+
+    - name: EventProcessingLag
+      expr: "crm_event_processing_duration_seconds{p99} > 5"
+      for: 5m
+      severity: critical
+      summary: "Event processing P99 > 5s for {{ $labels.bounded_context }}"
+
+  warning:
+    - name: HighLatency
+      expr: "histogram_quantile(0.95, sum(rate(crm_http_request_duration_seconds_bucket[5m])) by (le, bounded_context)) > 1"
+      for: 5m
+      severity: warning
+      summary: "P95 latency > 1s for {{ $labels.bounded_context }}"
+
+    - name: CacheHitRateLow
+      expr: "sum(rate(crm_cache_operations_total{operation='hit'}[5m])) by (bounded_context) / sum(rate(crm_cache_operations_total[5m])) by (bounded_context) < 0.85"
+      for: 10m
+      severity: warning
+      summary: "Cache hit rate < 85% for {{ $labels.bounded_context }}"
+
+    - name: DBPoolSaturation
+      expr: "crm_db_connection_pool_active > 80"
+      for: 5m
+      severity: warning
+      summary: "DB connection pool > 80% for {{ $labels.bounded_context }}"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Structured Logging
+# ═══════════════════════════════════════════════════════════════════════
+logging:
+  format: JSON
+  level: INFO (production), DEBUG (staging)
+  required_fields:
+    - timestamp (ISO 8601)
+    - level
+    - service.name
+    - trace_id (from OTel context)
+    - span_id (from OTel context)
+    - message
+    - bounded_context
+  optional_fields:
+    - customer_id (when customer-scoped)
+    - event_type (when processing events)
+    - duration_ms (for operation logs)
+    - error_type (for error logs)
+  notes: |
+    Every log line MUST include trace_id and span_id when available.
+    This enables correlation between logs, traces, and metrics in Grafana.
+    Never log PII (email, phone, full names) — use customer_id instead.
