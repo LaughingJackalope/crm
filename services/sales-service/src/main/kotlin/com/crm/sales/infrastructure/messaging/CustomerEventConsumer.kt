@@ -11,6 +11,17 @@ import org.eclipse.microprofile.reactive.messaging.Incoming
 import org.jboss.logging.Logger
 import java.math.BigDecimal
 import java.util.UUID
+/**
+ * Custom exception for domain-level processing failures in the consumer.
+ *
+ * When thrown, the exception message is captured by SmallRye's dead-letter
+ * mechanism and included in the dead-letter headers (dead-letter-reason),
+ * providing clear diagnostic context for ops teams monitoring the DLQ.
+ */
+class ConsumerProcessingException(
+    override val message: String,
+    override val cause: Throwable? = null,
+) : RuntimeException(message, cause)
 
 /**
  * Consumes customer lifecycle events from the CIAM bounded context and
@@ -100,6 +111,17 @@ class CustomerEventConsumer @Inject constructor(
         }
         val displayName = envelope.payload.displayName ?: "Unknown"
         val source = envelope.payload.source
+
+        // Validate customerId format — a poison pill with invalid UUID will
+        // throw ConsumerProcessingException, which triggers the DLQ after retries.
+        try {
+            UUID.fromString(customerId)
+        } catch (ex: IllegalArgumentException) {
+            throw ConsumerProcessingException(
+                "Invalid customerId format in CustomerRegistered event: '$customerId'",
+                ex,
+            )
+        }
 
         log.infof("Creating opportunity for new customer: %s (%s)", customerId, displayName)
 

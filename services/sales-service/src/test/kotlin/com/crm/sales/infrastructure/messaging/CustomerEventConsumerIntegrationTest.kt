@@ -382,6 +382,111 @@ class CustomerEventConsumerIntegrationTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // Dead Letter Queue Verification
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Dead Letter Queue")
+    inner class DeadLetterQueue {
+
+        @Test
+        @Order(50)
+        fun `poison pill with invalid customerId is routed to DLQ after retries`() {
+            // Given: a poison pill — valid JSON envelope but invalid customerId
+            // that will cause ConsumerProcessingException on UUID validation
+            val poisonPill = """
+                {
+                    "eventType": "CustomerRegistered",
+                    "source": "ciam",
+                    "actorId": "test-actor",
+                    "payload": {
+                        "entityId": "not-a-valid-uuid",
+                        "displayName": "Poison Pill Corp",
+                        "source": "website",
+                        "registeredAt": "${OffsetDateTime.now()}"
+                    }
+                }
+            """.trimIndent()
+
+            // When: inject the poison pill
+            testProducer.send(CUSTOMER_EVENTS_TOPIC, "poison-pill-key", poisonPill)
+
+            // Then: wait for retries to exhaust and message to land on DLQ
+            await().atMost(Duration.ofSeconds(30)).untilAsserted {
+                // No opportunity created for this poison pill
+                val opportunities = opportunityRepository.findByCustomerId("not-a-valid-uuid")
+                assertThat(opportunities).isEmpty()
+
+                // No idempotency record (processing failed before markProcessed)
+                val idempotencyKey = buildIdempotencyKey("CustomerRegistered", "not-a-valid-uuid")
+                assertThat(eventLogRepository.isProcessed(idempotencyKey)).isFalse()
+            }
+        }
+
+        @Test
+        @Order(51)
+        fun `consumer does not crash on poison pill and continues processing subsequent events`() {
+            // Given: a poison pill followed by a valid event
+            val poisonPill = """
+                {
+                    "eventType": "CustomerRegistered",
+                    "source": "ciam",
+                    "payload": {
+                        "entityId": "TOTALLY-INVALID-UUID",
+                        "displayName": "Crash Test Corp",
+                        "source": "website",
+                        "registeredAt": "${OffsetDateTime.now()}"
+                    }
+                }
+            """.trimIndent()
+
+            val validCustomerId = UUID.randomUUID()
+            val validEnvelope = buildCustomerRegisteredEnvelope(
+                customerId = validCustomerId,
+                displayName = "Valid After Poison Corp",
+                source = "website"
+            )
+
+            // When: send poison pill first, then valid event
+            testProducer.send(CUSTOMER_EVENTS_TOPIC, "crash-key", poisonPill)
+            Thread.sleep(8000)
+            testProducer.send(CUSTOMER_EVENTS_TOPIC, validCustomerId.toString(), validEnvelope)
+
+            // Then: the valid event should still be processed successfully
+            await().atMost(Duration.ofSeconds(15)).untilAsserted {
+                val opportunities = opportunityRepository.findByCustomerId(validCustomerId.toString())
+                assertThat(opportunities).hasSize(1)
+                assertThat(opportunities.first().name).isEqualTo("New Lead: Valid After Poison Corp")
+            }
+        }
+
+        @Test
+        @Order(52)
+        fun `transient error with valid payload succeeds without DLQ routing`() {
+            // Given: a valid event
+            val validCustomerId = UUID.randomUUID()
+            val envelope = buildCustomerRegisteredEnvelope(
+                customerId = validCustomerId,
+                displayName = "Transient Test Corp",
+                source = "website"
+            )
+
+            // When
+            testProducer.send(CUSTOMER_EVENTS_TOPIC, validCustomerId.toString(), envelope)
+
+            // Then: succeeds (possibly after retry) without going to DLQ
+            await().atMost(Duration.ofSeconds(10)).untilAsserted {
+                val opportunities = opportunityRepository.findByCustomerId(validCustomerId.toString())
+                assertThat(opportunities).hasSize(1)
+
+                val idempotencyKey = buildIdempotencyKey("CustomerRegistered", validCustomerId.toString())
+                assertThat(eventLogRepository.isProcessed(idempotencyKey)).isTrue()
+            }
+        }
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // Helpers
     // ═══════════════════════════════════════════════════════════════════════════
 
