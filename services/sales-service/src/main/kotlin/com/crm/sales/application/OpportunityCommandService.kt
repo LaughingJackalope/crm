@@ -5,6 +5,8 @@ import com.crm.sales.domain.opportunity.*
 import com.crm.common.messaging.EventEnvelope
 import com.crm.common.messaging.Identifiable
 import java.util.UUID
+import jakarta.enterprise.context.ApplicationScoped
+import jakarta.transaction.Transactional
 
 /**
  * Application service — orchestrates use cases for the Sales context.
@@ -12,6 +14,7 @@ import java.util.UUID
  * Delegates to the [Opportunity] aggregate and publishes the domain events
  * it returns. The service never constructs events directly.
  */
+@ApplicationScoped
 class OpportunityCommandService(
     private val opportunityRepository: OpportunityRepository,
     private val eventPublisher: SalesEventPublisher,
@@ -24,6 +27,7 @@ class OpportunityCommandService(
         accountId: String? = null,
         expectedCloseDate: java.time.LocalDate? = null,
         ownerId: String? = null,
+        source: String? = null,
     ): Opportunity {
         val opportunity = Opportunity(
             customerId = customerId,
