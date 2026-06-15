@@ -11,9 +11,13 @@ dependencies {
     implementation(libs.quarkus.hibernate.orm.panache.kotlin)
     implementation(libs.quarkus.jdbc.postgresql)
     implementation(libs.quarkus.messaging.kafka)
+    implementation("io.quarkus:quarkus-scheduler")
+    implementation("io.quarkus:quarkus-qute")
 
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.kafka)
     testImplementation(libs.rest.assured)
+    testImplementation("org.assertj:assertj-core:3.27.3")
+    testImplementation("org.awaitility:awaitility-kotlin:4.3.0")
 }
