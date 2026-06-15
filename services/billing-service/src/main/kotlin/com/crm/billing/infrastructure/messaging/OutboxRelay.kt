@@ -1,0 +1,75 @@
+package com.crm.billing.infrastructure.messaging
+
+import com.crm.billing.infrastructure.persistence.OutboxEventEntity
+import com.crm.billing.infrastructure.persistence.OutboxEventRepository
+import com.crm.billing.infrastructure.persistence.OutboxStatus
+import io.quarkus.scheduler.Scheduled
+import io.smallrye.reactive.messaging.MutinyEmitter
+import jakarta.enterprise.context.ApplicationScoped
+import jakarta.inject.Inject
+import jakarta.transaction.Transactional
+import org.eclipse.microprofile.reactive.messaging.Channel
+import org.eclipse.microprofile.reactive.messaging.OnOverflow
+import org.jboss.logging.Logger
+import java.time.Instant
+
+/**
+ * Background relay that polls the transactional outbox and publishes
+ * pending events to Kafka.
+ */
+@ApplicationScoped
+class OutboxRelay @Inject constructor(
+    private val outboxRepository: OutboxEventRepository,
+    @Channel("domain-events")
+    @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 2048)
+    private val emitter: MutinyEmitter<String>,
+) {
+
+    private val log = Logger.getLogger(OutboxRelay::class.java)
+
+    @Scheduled(every = "\${outbox.relay.interval:500ms}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    fun relay() {
+        val pending = outboxRepository.findPending(BATCH_SIZE)
+        if (pending.isEmpty()) return
+
+        log.debugf("Relay: publishing %d pending events", pending.size)
+
+        for (event in pending) {
+            publishSingle(event)
+        }
+    }
+
+    @Scheduled(every = "\${outbox.relay.retry-interval:30s}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    fun retryFailed() {
+        val failed = outboxRepository.findFailedForRetry(
+            maxRetries = MAX_RETRIES,
+            retryThreshold = Instant.now().minusSeconds(RETRY_BACKOFF_SECONDS),
+        )
+        if (failed.isEmpty()) return
+
+        log.warnf("Relay: retrying %d failed events", failed.size)
+
+        for (event in failed) {
+            publishSingle(event)
+        }
+    }
+
+    @Transactional
+    fun publishSingle(event: OutboxEventEntity) {
+        try {
+            emitter.sendAndAwait(event.payload)
+            outboxRepository.remove(event.eventId)
+            log.tracef("Relay: published and deleted event %s (%s)", event.eventId, event.eventType)
+        } catch (ex: Exception) {
+            log.warnf(ex, "Relay: failed to publish event %s (%s), retry %d",
+                event.eventId, event.eventType, event.retryCount + 1)
+            outboxRepository.markFailed(event.eventId)
+        }
+    }
+
+    companion object {
+        const val BATCH_SIZE = 100
+        const val MAX_RETRIES = 5
+        const val RETRY_BACKOFF_SECONDS = 60L
+    }
+}

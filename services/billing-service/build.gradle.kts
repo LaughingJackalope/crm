@@ -1,3 +1,14 @@
+/*
+ * :services:billing-service
+ *
+ * Billing / Invoice Bounded Context.
+ *
+ * Receives OpportunityWon events from Sales, generates invoices
+ * with tax calculations, and publishes InvoiceGenerated events.
+ *
+ * DDD layers: domain/ | application/ | infrastructure/{rest,persistence,messaging}
+ */
+
 plugins {
     id("io.quarkus") version "3.28.1"
     id("crm.quarkus-convention")
@@ -12,8 +23,23 @@ dependencies {
     implementation(libs.quarkus.jdbc.postgresql)
     implementation(libs.quarkus.messaging.kafka)
 
+    // ── Scheduling (outbox relay) ──────────────────────────────────────────
+    implementation("io.quarkus:quarkus-scheduler")
+
+    // ── Unit testing ────────────────────────────────────────────────────────
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.mockito.kotlin)
+    testImplementation(kotlin("test"))
+
+    // ── Integration testing ─────────────────────────────────────────────────
+    testImplementation(libs.quarkus.junit5)
+    testImplementation(libs.quarkus.junit5.mockito)
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.kafka)
     testImplementation(libs.rest.assured)
+
+    // ── Assertions ──────────────────────────────────────────────────────────
+    testImplementation("org.assertj:assertj-core:3.27.3")
+    testImplementation("org.awaitility:awaitility-kotlin:4.3.0")
 }
