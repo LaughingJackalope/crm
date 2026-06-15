@@ -29,10 +29,18 @@ dependencies {
     implementation(libs.quarkus.hibernate.orm.panache.kotlin)
     implementation(libs.quarkus.jdbc.postgresql)
     implementation(libs.quarkus.messaging.kafka)
-    implementation(libs.quarkus.oidc)
-    implementation(libs.quarkus.security)
+
+    // ── Scheduling (outbox relay) ──────────────────────────────────────────
+    implementation("io.quarkus:quarkus-scheduler")
+
+    // ── OIDC / IAM ─────────────────────────────────────────────────────────
 
     // ── Testing ───────────────────────────────────────────────────────────
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.mockito.kotlin)
+    testImplementation(kotlin("test"))
+
+    // ── Integration test (Quarkus) ─────────────────────────────────────────
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.kafka)

@@ -1,5 +1,6 @@
 package com.crm.ciam.infrastructure.rest
 
+import com.crm.ciam.domain.CiamDomainException
 import com.crm.common.error.CrmException
 import com.crm.common.error.ProblemDetail
 import jakarta.ws.rs.core.Response
@@ -8,7 +9,6 @@ import jakarta.ws.rs.ext.Provider
 
 /**
  * Maps [CrmException] subclasses to RFC 7807 Problem+JSON responses.
- * Reused across all service modules via :libs:common.
  */
 @Provider
 class CrmExceptionMapper : ExceptionMapper<CrmException> {
@@ -24,4 +24,35 @@ class CrmExceptionMapper : ExceptionMapper<CrmException> {
                 )
             )
             .build()
+}
+
+/**
+ * Maps CIAM domain exceptions to appropriate HTTP 409 Conflict responses.
+ */
+@Provider
+class CiamDomainExceptionMapper : ExceptionMapper<CiamDomainException> {
+    override fun toResponse(exception: CiamDomainException): Response {
+        val (status, type, title) = when (exception) {
+            is CiamDomainException.InvalidLifecycleTransition ->
+                Triple(409, "https://crm.example.com/errors/invalid-transition", "Invalid State Transition")
+            is CiamDomainException.CustomerInactive ->
+                Triple(409, "https://crm.example.com/errors/customer-inactive", "Customer Inactive")
+            is CiamDomainException.LeadNotQualified ->
+                Triple(409, "https://crm.example.com/errors/lead-not-qualified", "Lead Not Qualified")
+            is CiamDomainException.DuplicateContact ->
+                Triple(409, "https://crm.example.com/errors/duplicate-contact", "Duplicate Contact")
+            is CiamDomainException.InvalidReactivation ->
+                Triple(409, "https://crm.example.com/errors/invalid-reactivation", "Invalid Reactivation")
+        }
+        return Response.status(status)
+            .entity(
+                ProblemDetail(
+                    type = type,
+                    title = title,
+                    status = status,
+                    detail = exception.message,
+                )
+            )
+            .build()
+    }
 }

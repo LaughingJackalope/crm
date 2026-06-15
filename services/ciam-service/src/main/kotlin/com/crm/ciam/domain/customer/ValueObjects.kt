@@ -42,3 +42,30 @@ data class CustomerScore(
 ) {
     init { require(value in 0..100) { "Score must be 0-100, got $value" } }
 }
+
+data class Contact(
+    val contactId: java.util.UUID = java.util.UUID.randomUUID(),
+    val firstName: String,
+    val lastName: String,
+    val title: String? = null,
+    val email: EmailAddress,
+    val phone: PhoneNumber? = null,
+    val createdAt: Instant = Instant.now(),
+)
+
+data class Account(
+    val accountId: java.util.UUID = java.util.UUID.randomUUID(),
+    val companyName: String,
+    val industry: String? = null,
+    val size: OrganizationSize? = null,
+    val billingAddress: PostalAddress? = null,
+    val createdAt: Instant = Instant.now(),
+)
+
+data class PostalAddress(
+    val street: String,
+    val city: String,
+    val state: String? = null,
+    val postalCode: String,
+    val country: String,
+)
