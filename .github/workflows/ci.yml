@@ -1,37 +1,47 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# CRM Monorepo — Continuous Integration Pipeline
+# CRM Monorepo — CI Pipeline with Manual Release & Snapshot Support
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # Architecture Overview:
 #
-#   ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-#   │  Path Filter │────▶│ Dynamic Matrix   │────▶│  Build & Test   │
-#   │  (changes)   │     │ (affected svcs)  │     │  (per service)  │
-#   └─────────────┘     └──────────────────┘     └────────┬────────┘
+#   ┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
+#   │ Path Filter / │────▶│ Dynamic Matrix   │────▶│  Build & Test   │
+#   │ Dispatch Bypass│    │ (affected svcs)  │     │  (per service)  │
+#   └──────────────┘     └──────────────────┘     └────────┬────────┘
 #                                                          │
-#                        ┌──────────────────┐     ┌───────▼────────┐
-#                        │  Artifact Upload │◀────│  Stage Runner  │
-#                        │  (14-day TTL)    │     │  JARs          │
-#                        └──────────────────┘     └────────────────┘
+#   ┌──────────────┐     ┌──────────────────┐     ┌───────▼────────┐
+#   │ Version      │────▶│ Gradle -Pversion  │────▶│ Stage Versioned│
+#   │ Resolution   │     │ build             │     │ Runner JAR     │
+#   └──────────────┘     └──────────────────┘     └───────┬────────┘
+#                                                          │
+#                                                 ┌───────▼────────┐
+#                                                 │ Artifact Upload│
+#                                                 │ (14-day TTL)   │
+#                                                 └────────────────┘
 #
-# Change-Detection Strategy:
-#   1. dorny/paths-filter inspects diffs against the PR target (or main).
-#   2. Each service directory (services/<name>/) is an independent filter.
-#   3. Shared paths (libs/, gradle/, buildSrc/, wrapper, .github/) trigger
-#      ALL services — a change to common code is a change to everyone.
-#   4. Non-service paths (DDD/, *.md, infra/) are ignored — pipeline exits.
+# Trigger Modes:
+#   1. push/PR (automatic): dorny/paths-filter detects changed services.
+#      Version defaults to 0.1.0-SNAPSHOT-{run_number}.
+#   2. workflow_dispatch (manual): bypasses path-filtering, builds ALL 6
+#      services. If release_version input is provided (e.g., "1.0.0"), that
+#      string is used as the SemVer. Otherwise falls back to snapshot format.
 #
-# Matrix Evaluation:
-#   The `detect` job produces a JSON array of affected service names.
-#   The `build` job uses `fromJson()` to expand this into a parallel matrix.
-#   If the array is empty (`[]`), the matrix has zero dimensions and the build
-#   job is skipped entirely — no runners are provisioned.
+# Version Resolution:
+#   - Manual dispatch WITH release_version → use that exact string (e.g., 1.0.0)
+#   - All other triggers → 0.1.0-SNAPSHOT-{github.run_number}
+#   - Gradle receives it via -Pversion=... which convention plugins resolve:
+#       version = findProperty("version")?.toString() ?: "0.0.1-SNAPSHOT"
+#
+# Artifact Naming Convention:
+#   <service>-<version>.jar  (e.g., billing-service-1.0.0.jar or
+#                              billing-service-0.1.0-SNAPSHOT-42.jar)
+#   Quarkus runner JARs are renamed from the Gradle-built
+#   <artifact>-<version>-runner.jar to the clean <artifact>-<version>.jar.
 #
 # Cache Hygiene:
-#   - gradle/actions/setup-gradle handles wrapper + dependency caching.
-#   - Non-main branches are READ-ONLY (never push to the cache).
-#   - Main branch pushes, establishing the authoritative cache layer.
-#   - This prevents feature-branch cache pollution and ensures reproducibility.
+#   - Non-main branches: READ-ONLY cache (never push).
+#   - Main branch: read + push (establishes authoritative cache).
+#   - This prevents feature-branch cache pollution.
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -42,6 +52,18 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
+  # ── Manual Release Trigger ─────────────────────────────────────────────────
+  # Run from the GitHub Actions UI → "Run workflow".
+  # Provide a SemVer string (e.g., "1.0.0") for a production release snapshot,
+  # or leave blank to build a timestamped development snapshot of all services.
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Enter SemVer for production release (e.g., 1.0.0). Leave blank to build as a standard timestamped snapshot."
+        required: false
+        type: string
+        default: ""
 
 # ── Concurrency control ──────────────────────────────────────────────────────
 # Cancel in-progress runs for the same PR/branch to avoid redundant builds.
@@ -58,20 +80,19 @@ jobs:
   # ═══════════════════════════════════════════════════════════════════════════
   # JOB: detect-changes
   # ═══════════════════════════════════════════════════════════════════════════
-  # Determines which services are affected by the current diff.
+  # Determines which services are affected and computes the build version.
   #
   # Outputs:
-  #   affected-services — JSON array of service names, e.g. ["billing-service",
-  #                       "communication-service"]. Empty [] if none changed.
+  #   affected-services  — JSON array of service names (e.g., ["billing-service"]).
+  #                         All 6 services on workflow_dispatch.
+  #   any-changed        — "true" if any service needs building, "false" otherwise.
+  #   build-version      — The resolved version string for Gradle -Pversion.
   #
   # Logic:
-  #   For each service, the filter matches if:
-  #     (a) Files under services/<name>/** changed, OR
-  #     (b) Any shared/global path changed (libs/, gradle/, buildSrc/, etc.)
-  #
-  #   A global change sets `global_changed=true`, which forces every service
-  #   into the matrix. This is the conservative/correct choice — a change to
-  #   :libs:common could break any downstream consumer.
+  #   - If triggered via workflow_dispatch → all 6 services, version from input
+  #     or computed snapshot.
+  #   - If push/PR → run dorny/paths-filter, check global + per-service paths.
+  #   - Non-service-only changes (docs, infra) → empty array, skipped build.
   # ═══════════════════════════════════════════════════════════════════════════
   detect-changes:
     name: Detect Changed Services
@@ -79,17 +100,25 @@ jobs:
     outputs:
       affected-services: ${{ steps.compute.outputs.services }}
       any-changed: ${{ steps.compute.outputs.any_changed }}
+      build-version: ${{ steps.version.outputs.build_version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           # Full history so paths-filter can diff against the merge base.
+          # Not needed for workflow_dispatch (all services always build),
+          # but checkout itself is required for subsequent Gradle steps.
           fetch-depth: 0
 
+      # ── Path Filter (skipped on workflow_dispatch) ────────────────────────
+      # dorny/paths-filter only makes sense for push/PR triggers. On manual
+      # dispatch we force all 6 services regardless of diff.
       - name: Compute changed paths
         uses: dorny/paths-filter@v3
         id: filter
+        # Only run path filtering for push/PR. Dispatch bypasses this entirely.
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             # ── Shared / global paths ──────────────────────────────────────
@@ -106,6 +135,8 @@ jobs:
               - 'gradle/libs.versions.toml'
 
             # ── Per-service paths ──────────────────────────────────────────
+            # Each entry includes the service directory plus shared paths
+            # so a shared-lib change also triggers individual services.
             ciam-service:
               - 'services/ciam-service/**'
               - 'libs/**'
@@ -151,8 +182,19 @@ jobs:
           # ── Determine the set of affected services ──────────────────────
           SERVICES=()
 
-          # If global paths changed, every service is affected.
-          if [[ "${{ steps.filter.outputs.global }}" == "true" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch: always build the full ecosystem.
+            echo "::notice::Manual dispatch — building all 6 services."
+            SERVICES=(
+              "ciam-service"
+              "sales-service"
+              "support-service"
+              "billing-service"
+              "marketing-service"
+              "communication-service"
+            )
+          elif [[ "${{ steps.filter.outputs.global }}" == "true" ]]; then
+            # Global/shared paths changed — all services are affected.
             echo "::notice::Global/shared paths changed — all services will build."
             SERVICES=(
               "ciam-service"
@@ -163,8 +205,8 @@ jobs:
               "communication-service"
             )
           else
-            # Check each service individually — hardcoded because GitHub Actions
-            # expressions cannot use dynamic keys (steps.filter.outputs[svc] is invalid).
+            # Check each service individually — hardcoded because GitHub
+            # Actions expressions cannot use dynamic bracket keys.
             if [[ "${{ steps.filter.outputs['ciam-service'] }}" == "true" ]]; then
               SERVICES+=("ciam-service")
             fi
@@ -191,18 +233,53 @@ jobs:
             echo "services=[]" >> "$GITHUB_OUTPUT"
             echo "any_changed=false" >> "$GITHUB_OUTPUT"
           else
-            # Build a compact JSON array: ["svc1","svc2",...]
             JSON=$(printf '%s\n' "${SERVICES[@]}" | jq -R . | jq -s . | tr -d '\n')
             echo "Affected services: ${JSON}"
             echo "services=${JSON}" >> "$GITHUB_OUTPUT"
             echo "any_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # ── Version Resolution ────────────────────────────────────────────────
+      # Priority:
+      #   1. Manual dispatch WITH release_version input → use as-is (SemVer).
+      #   2. Everything else → 0.1.0-SNAPSHOT-{run_number}.
+      #
+      # The convention plugins in buildSrc resolve this via:
+      #   version = findProperty("version")?.toString() ?: "0.0.1-SNAPSHOT"
+      # so passing -Pversion=<value> on the Gradle CLI overrides the default.
+      - name: Resolve build version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] \
+             && [[ -n "${{ github.event.inputs.release_version }}" ]]; then
+            # Explicit SemVer from manual dispatch input.
+            VER="${{ github.event.inputs.release_version }}"
+            echo "::notice::Manual release version: ${VER}"
+          else
+            # Development snapshot: monotonically increasing run number
+            # ensures each CI build gets a unique, sortable version.
+            VER="0.1.0-SNAPSHOT-${{ github.run_number }}"
+          fi
+
+          # Validate: reject strings with characters that break JAR filenames.
+          if [[ "${VER}" =~ [^a-zA-Z0-9._-] ]]; then
+            echo "::error::Invalid version string: '${VER}'"
+            echo "Only alphanumeric, '.', '-', and '_' are allowed."
+            exit 1
+          fi
+
+          echo "Build version: ${VER}"
+          echo "build_version=${VER}" >> "$GITHUB_OUTPUT"
+
   # ═══════════════════════════════════════════════════════════════════════════
   # JOB: build
   # ═══════════════════════════════════════════════════════════════════════════
   # Dynamically expands the affected-services array into a parallel matrix.
-  # Each matrix cell compiles, tests, stages, and uploads one service.
+  # Each matrix cell compiles, tests, stages with versioned naming, and
+  # uploads one service.
   #
   # If affected-services is `[]`, the matrix is zero-dimensional and this job
   # is skipped — GitHub does not provision any runners.
@@ -218,6 +295,7 @@ jobs:
       # ── Dynamic matrix from detect-changes output ──────────────────────
       # fromJson parses the JSON array into parallel job dimensions.
       # Example: ["billing-service","communication-service"] → 2 parallel jobs.
+      # Full 6-element array on workflow_dispatch or global changes.
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs['affected-services']) }}
       # Run all matrix cells in parallel — no service depends on another's
@@ -242,7 +320,6 @@ jobs:
           distribution: temurin
           java-version: 21
           # Enable built-in Gradle cache via the setup-java cache key.
-          # This is complementary to gradle/actions/setup-gradle below.
           cache: gradle
 
       - name: Setup Gradle with cache
@@ -256,35 +333,43 @@ jobs:
           # cache with corrupt or partial build artifacts.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-          # Cache encryption key (optional but recommended for repos with
-          # secrets in gradle.properties). Uncomment and set via repo secret:
-          # cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
-
           # ── Dependency graph ────────────────────────────────────────────
-          # Submit dependency graph for Dependabot alerts (requires
-          # `dependency-graph: generate-and-submit` or `generate-and-upload`).
           dependency-graph: generate-and-upload
 
+      # ── Compile & Test ────────────────────────────────────────────────────
+      # -Pversion is consumed by convention plugins:
+      #     version = findProperty("version")?.toString() ?: "0.0.1-SNAPSHOT"
+      # This sets the project version, which Quarkus uses to name the runner
+      # JAR: <service>-<version>-runner.jar.
       - name: Compile & Test — ${{ matrix.service }}
         run: |
           ./gradlew :services:${{ matrix.service }}:build \
+            -Pversion=${{ needs.detect-changes.outputs.build-version }} \
             --no-daemon \
             --build-cache \
             --configuration-cache \
             --parallel \
             -x spotlessCheck
 
+      # ── Stage Versioned Runner JAR ────────────────────────────────────────
+      # Quarkus produces: <service>-<version>-runner.jar
+      # We normalize to:  <service>-<version>.jar
+      #
+      # Examples:
+      #   Release:    billing-service-1.0.0.jar
+      #   Snapshot:   billing-service-0.1.0-SNAPSHOT-42.jar
       - name: Stage runner JAR — ${{ matrix.service }}
+        id: stage
         shell: bash
         run: |
           set -euo pipefail
 
           SERVICE="${{ matrix.service }}"
+          VERSION="${{ needs.detect-changes.outputs.build-version }}"
           BUILD_LIBS="services/${SERVICE}/build/libs"
 
           # ── Locate the Quarkus runner JAR ───────────────────────────────
-          # Quarkus Gradle plugin produces: <service>-<version>-runner.jar
-          # We find it dynamically to avoid hardcoding versions.
+          # With -Pversion set, Quarkus names it <artifact>-<version>-runner.jar.
           RUNNER_JAR=$(find "${BUILD_LIBS}" -maxdepth 1 -name '*-runner.jar' -type f | head -1)
 
           if [[ -z "${RUNNER_JAR}" ]]; then
@@ -297,9 +382,10 @@ jobs:
           echo "Found runner JAR: ${RUNNER_JAR}"
 
           # ── Normalize artifact name ─────────────────────────────────────
-          # Convention: <service>-runner.jar (strip version prefix).
-          # This gives downstream consumers a stable, predictable name.
-          STAGED_NAME="${SERVICE}-runner.jar"
+          # Convention: <service>-<version>.jar
+          # The -runner suffix from Quarkus is stripped; the version from
+          # -Pversion is preserved in the filename for traceability.
+          STAGED_NAME="${SERVICE}-${VERSION}.jar"
           STAGED_DIR="staged-artifacts"
           STAGED_PATH="${STAGED_DIR}/${STAGED_NAME}"
 
@@ -307,18 +393,22 @@ jobs:
           cp "${RUNNER_JAR}" "${STAGED_PATH}"
 
           echo "Staged: ${STAGED_PATH}"
-          echo "staged_path=${STAGED_PATH}" >> "$GITHUB_ENV"
+          ls -lh "${STAGED_PATH}"
 
+          # Expose for the upload step.
+          echo "staged_path=${STAGED_PATH}" >> "$GITHUB_OUTPUT"
+
+      # ── Upload Versioned Artifact ─────────────────────────────────────────
+      # Artifact name includes service + version for clear identification
+      # in the GitHub Actions UI. 14-day retention for cost control.
       - name: Upload runner JAR artifact — ${{ matrix.service }}
         uses: actions/upload-artifact@v4
         with:
-          # Artifact name includes the service for disambiguation.
-          name: ${{ matrix.service }}-runner
-          path: staged-artifacts/${{ matrix.service }}-runner.jar
+          # Artifact name: <service>-<version> (no .jar — GitHub adds it).
+          name: ${{ matrix.service }}-${{ needs.detect-changes.outputs.build-version }}
+          path: staged-artifacts/${{ matrix.service }}-${{ needs.detect-changes.outputs.build-version }}.jar
           # ── Retention policy ────────────────────────────────────────────
           # 14-day retention balances debuggability with storage costs.
-          # Failed builds can be inspected for two weeks; after that, the
-          # artifact is automatically purged by GitHub.
           retention-days: 14
           # Fail the step if the artifact file is missing (defense-in-depth).
           if-no-files-found: error

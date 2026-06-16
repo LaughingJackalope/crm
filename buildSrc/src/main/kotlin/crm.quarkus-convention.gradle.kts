@@ -1,5 +1,5 @@
 /*
- * Quarkus convention plugin — adds common Quarkus dependencies.
+ * Quarkus convention plugin — shared config for all :services:* modules.
  *
  * Apply alongside the io.quarkus plugin in your module's build.gradle.kts:
  *
@@ -7,12 +7,21 @@
  *       id("io.quarkus") version "3.28.1"
  *       id("crm.quarkus-convention")
  *   }
+ *
+ * Version resolution:
+ *   Accepts a `-Pversion=...` project property (injected by CI). Falls back to
+ *   "0.0.1-SNAPSHOT" when no property is supplied (local dev default).
  */
 
 plugins {
     id("crm.kotlin-convention")
 }
 
+// ── Version ────────────────────────────────────────────────────────────────────
+// CI injects `-Pversion=1.0.0` or `-Pversion=0.1.0-SNAPSHOT-42` via Gradle CLI.
+// `findProperty` returns null when the property is unset, falling through to the
+// local-development default.
+version = findProperty("version")?.toString() ?: "0.0.1-SNAPSHOT"
 val quarkusPlatformVersion: String by project
 
 dependencies {
