@@ -348,9 +348,7 @@ jobs:
             --no-daemon \
             --build-cache \
             --configuration-cache \
-            --parallel \
-            -x spotlessCheck
-
+            --parallel
       # ── Stage Versioned Runner JAR ────────────────────────────────────────
       # Quarkus produces: <service>-<version>-runner.jar
       # We normalize to:  <service>-<version>.jar
