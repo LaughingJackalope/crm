@@ -27,6 +27,14 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         }
 
         val kafkaBrokers = kafka.bootstrapServers
+        System.setProperty("kafka.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.incoming.ciam-lifecycle-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.incoming.billing-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.incoming.support-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.incoming.marketing-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.incoming.sales-pipeline-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.outgoing.communication-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.outgoing.domain-events.bootstrap.servers", kafkaBrokers)
 
         return mapOf(
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
@@ -34,19 +42,6 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
-
-            "kafka.bootstrap.servers" to kafkaBrokers,
-
-            // Incoming
-            "mp.messaging.incoming.ciam-lifecycle-events.bootstrap.servers" to kafkaBrokers,
-            "mp.messaging.incoming.billing-events.bootstrap.servers" to kafkaBrokers,
-            "mp.messaging.incoming.support-events.bootstrap.servers" to kafkaBrokers,
-            "mp.messaging.incoming.marketing-events.bootstrap.servers" to kafkaBrokers,
-            "mp.messaging.incoming.sales-pipeline-events.bootstrap.servers" to kafkaBrokers,
-
-            // Outgoing
-            "mp.messaging.outgoing.communication-events.bootstrap.servers" to kafkaBrokers,
-            "mp.messaging.outgoing.domain-events.bootstrap.servers" to kafkaBrokers,
         )
     }
 

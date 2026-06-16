@@ -29,6 +29,10 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         }
 
         val kafkaBrokers = kafka.bootstrapServers
+        System.setProperty("kafka.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.incoming.customer-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.outgoing.sales-events.bootstrap.servers", kafkaBrokers)
+        System.setProperty("mp.messaging.outgoing.domain-events.bootstrap.servers", kafkaBrokers)
 
         return mapOf(
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
@@ -36,15 +40,6 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
-
-            "kafka.bootstrap.servers" to kafkaBrokers,
-
-            // Incoming
-            "mp.messaging.incoming.customer-events.bootstrap.servers" to kafkaBrokers,
-
-            // Outgoing
-            "mp.messaging.outgoing.sales-events.bootstrap.servers" to kafkaBrokers,
-            "mp.messaging.outgoing.domain-events.bootstrap.servers" to kafkaBrokers,
         )
     }
 
