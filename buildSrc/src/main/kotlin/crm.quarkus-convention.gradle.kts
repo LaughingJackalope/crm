@@ -43,5 +43,6 @@ dependencies {
     // Testing
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.quarkus:quarkus-junit5-mockito")
+    testImplementation("io.quarkus:quarkus-jsonb")
     testImplementation("io.rest-assured:rest-assured")
 }
