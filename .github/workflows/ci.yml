@@ -350,12 +350,12 @@ jobs:
             --configuration-cache \
             --parallel
       # ── Stage Versioned Runner JAR ────────────────────────────────────────
-      # Quarkus produces: <service>-<version>-runner.jar
-      # We normalize to:  <service>-<version>.jar
-      #
-      # Examples:
-      #   Release:    billing-service-1.0.0.jar
-      #   Snapshot:   billing-service-0.1.0-SNAPSHOT-42.jar
+      # Two JAR naming patterns exist across services:
+      #   1. Services with @QuarkusTest: <service>-<version>-runner.jar
+      #      (produced by quarkusBuild, triggered by integration tests)
+      #   2. Services with unit tests only: <service>-<version>.jar
+      #      (produced by the standard build task)
+      # We normalize both to: <service>-<version>.jar
       - name: Stage runner JAR — ${{ matrix.service }}
         id: stage
         shell: bash
@@ -367,8 +367,16 @@ jobs:
           BUILD_LIBS="services/${SERVICE}/build/libs"
 
           # ── Locate the Quarkus runner JAR ───────────────────────────────
-          # With -Pversion set, Quarkus names it <artifact>-<version>-runner.jar.
+          # Services with @QuarkusTest produce <artifact>-<version>-runner.jar
+          # via quarkusBuild. Services with only unit tests produce a plain
+          # <artifact>-<version>.jar via the standard build task.
+          # Try the runner JAR first, then fall back to the plain JAR.
           RUNNER_JAR=$(find "${BUILD_LIBS}" -maxdepth 1 -name '*-runner.jar' -type f | head -1)
+
+          if [[ -z "${RUNNER_JAR}" ]]; then
+            # No runner JAR — try the plain JAR produced by the build task.
+            RUNNER_JAR=$(find "${BUILD_LIBS}" -maxdepth 1 -name "${SERVICE}-${VERSION}.jar" -type f | head -1)
+          fi
 
           if [[ -z "${RUNNER_JAR}" ]]; then
             echo "::error::No runner JAR found in ${BUILD_LIBS}/"
