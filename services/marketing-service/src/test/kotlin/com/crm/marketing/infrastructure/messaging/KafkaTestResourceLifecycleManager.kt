@@ -7,11 +7,6 @@ import org.testcontainers.utility.DockerImageName
 
 /**
  * Starts Kafka and Postgres Testcontainers for marketing-service integration tests.
- *
- * Creates the "marketing" schema in the blank Postgres container before Quarkus
- * starts. Without this, Hibernate's drop-and-create strategy fails because
- * entities declare schema = "marketing" but the schema doesn't exist in a fresh
- * Testcontainers instance.
  */
 class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
 
@@ -27,24 +22,27 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         postgres.start()
         kafka.start()
 
-        // ── Create service-specific schema ────────────────────────────────────
-        // Entities use @Table(schema = "marketing") — the schema must exist before
-        // Hibernate's drop-and-create runs.
         postgres.createConnection("").use { conn ->
             conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS marketing")
         }
 
+        val kafkaBrokers = kafka.bootstrapServers
+
         return mapOf(
-            // ── Datasource ───────────────────────────────────────────────────
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
             "quarkus.datasource.username" to postgres.username,
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
 
-            // ── Kafka ────────────────────────────────────────────────────────
-            "kafka.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.sales-opportunity-events.bootstrap.servers" to kafka.bootstrapServers,
+            "kafka.bootstrap.servers" to kafkaBrokers,
+
+            // Incoming
+            "mp.messaging.incoming.sales-opportunity-events.bootstrap.servers" to kafkaBrokers,
+
+            // Outgoing
+            "mp.messaging.outgoing.marketing-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.outgoing.domain-events.bootstrap.servers" to kafkaBrokers,
         )
     }
 

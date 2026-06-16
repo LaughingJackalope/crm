@@ -28,6 +28,8 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS sales")
         }
 
+        val kafkaBrokers = kafka.bootstrapServers
+
         return mapOf(
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
             "quarkus.datasource.username" to postgres.username,
@@ -35,8 +37,14 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
 
-            "kafka.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.customer-events.bootstrap.servers" to kafka.bootstrapServers,
+            "kafka.bootstrap.servers" to kafkaBrokers,
+
+            // Incoming
+            "mp.messaging.incoming.customer-events.bootstrap.servers" to kafkaBrokers,
+
+            // Outgoing
+            "mp.messaging.outgoing.sales-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.outgoing.domain-events.bootstrap.servers" to kafkaBrokers,
         )
     }
 

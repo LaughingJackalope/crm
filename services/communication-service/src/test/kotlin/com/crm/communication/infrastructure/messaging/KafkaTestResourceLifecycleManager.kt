@@ -26,6 +26,8 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS communication")
         }
 
+        val kafkaBrokers = kafka.bootstrapServers
+
         return mapOf(
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
             "quarkus.datasource.username" to postgres.username,
@@ -33,12 +35,18 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
 
-            "kafka.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.ciam-lifecycle-events.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.billing-events.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.support-events.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.marketing-events.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.sales-pipeline-events.bootstrap.servers" to kafka.bootstrapServers,
+            "kafka.bootstrap.servers" to kafkaBrokers,
+
+            // Incoming
+            "mp.messaging.incoming.ciam-lifecycle-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.incoming.billing-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.incoming.support-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.incoming.marketing-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.incoming.sales-pipeline-events.bootstrap.servers" to kafkaBrokers,
+
+            // Outgoing
+            "mp.messaging.outgoing.communication-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.outgoing.domain-events.bootstrap.servers" to kafkaBrokers,
         )
     }
 

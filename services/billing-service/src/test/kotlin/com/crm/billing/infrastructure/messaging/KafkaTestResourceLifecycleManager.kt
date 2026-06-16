@@ -9,9 +9,8 @@ import org.testcontainers.utility.DockerImageName
  * Starts Kafka and Postgres Testcontainers for billing-service integration tests.
  *
  * Creates the "billing" schema in the blank Postgres container before Quarkus
- * starts. Without this, Hibernate's drop-and-create strategy fails because
- * entities declare schema = "billing" but the schema doesn't exist in a fresh
- * Testcontainers instance.
+ * starts. Configures all incoming and outgoing channels to use the Testcontainers
+ * Kafka broker instead of the default localhost:9092.
  */
 class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
 
@@ -30,11 +29,11 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         kafka.start()
 
         // ── Create service-specific schema ────────────────────────────────────
-        // Entities use @Table(schema = "billing") — the schema must exist before
-        // Hibernate's drop-and-create runs.
         postgres.createConnection("").use { conn ->
             conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS billing")
         }
+
+        val kafkaBrokers = kafka.bootstrapServers
 
         return mapOf(
             // ── Datasource ───────────────────────────────────────────────────
@@ -44,9 +43,15 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
 
-            // ── Kafka ────────────────────────────────────────────────────────
-            "kafka.bootstrap.servers" to kafka.bootstrapServers,
-            "mp.messaging.incoming.sales-opportunity-events.bootstrap.servers" to kafka.bootstrapServers,
+            // ── Kafka — global default ──────────────────────────────────────
+            "kafka.bootstrap.servers" to kafkaBrokers,
+
+            // ── Kafka — incoming ─────────────────────────────────────────────
+            "mp.messaging.incoming.sales-opportunity-events.bootstrap.servers" to kafkaBrokers,
+
+            // ── Kafka — outgoing ─────────────────────────────────────────────
+            "mp.messaging.outgoing.billing-events.bootstrap.servers" to kafkaBrokers,
+            "mp.messaging.outgoing.domain-events.bootstrap.servers" to kafkaBrokers,
         )
     }
 
