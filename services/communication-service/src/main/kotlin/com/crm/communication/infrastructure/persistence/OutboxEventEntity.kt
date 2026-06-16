@@ -21,6 +21,9 @@ class OutboxEventEntity : PanacheEntityBase {
     @Enumerated(EnumType.STRING) @Column(name = "status", nullable = false, length = 16)
     var status: OutboxStatus = OutboxStatus.PENDING
     @Column(name = "retry_count", nullable = false) var retryCount: Int = 0
+
+    @Column(name = "metadata", columnDefinition = "text")
+    var metadata: String? = null
     companion object : PanacheCompanion<OutboxEventEntity>
 }
 

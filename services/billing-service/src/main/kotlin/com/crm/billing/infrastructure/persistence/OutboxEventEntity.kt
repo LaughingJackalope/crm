@@ -51,6 +51,9 @@ class OutboxEventEntity : PanacheEntityBase {
     var retryCount: Int = 0
 
     companion object : PanacheCompanion<OutboxEventEntity>
+
+    @Column(name = "metadata", columnDefinition = "text")
+    var metadata: String? = null
 }
 
 enum class OutboxStatus {

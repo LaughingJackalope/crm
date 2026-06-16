@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS communication.outbox_event (
     status          VARCHAR(16)     NOT NULL DEFAULT 'PENDING'
                     CHECK (status IN ('PENDING', 'PUBLISHED', 'FAILED')),
     retry_count     INTEGER         NOT NULL DEFAULT 0
+
+    -- W3C trace context headers for distributed tracing across outbox boundary
+    metadata        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS ix_outbox_event_pending_comm

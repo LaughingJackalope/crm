@@ -33,3 +33,16 @@ CREATE INDEX IF NOT EXISTS ix_outbox_event_failed
 -- Index for monitoring: count by status.
 CREATE INDEX IF NOT EXISTS ix_outbox_event_status
     ON ciam.outbox_event (status);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Distributed Tracing: W3C Trace Context metadata column
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Stores W3C trace context headers (traceparent, tracestate) extracted at the
+-- time the outbox event was created. The OutboxRelay reinjects this context
+-- before publishing to Kafka, bridging the trace across the outbox boundary.
+
+ALTER TABLE ciam.outbox_event
+    ADD COLUMN IF NOT EXISTS metadata TEXT;
+
+COMMENT ON COLUMN ciam.outbox_event.metadata IS
+    'W3C trace context headers (traceparent, tracestate) as JSON. Populated by TraceContextCarrier.extractCurrentTraceHeaders() at write time, consumed by OutboxRelay at publish time to reinject trace context into Kafka record headers.';

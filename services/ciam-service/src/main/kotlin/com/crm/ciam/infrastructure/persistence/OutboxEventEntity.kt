@@ -72,6 +72,17 @@ class OutboxEventEntity : PanacheEntityBase {
     var actorId: String? = null
 
     /**
+     * W3C trace context headers (traceparent, tracestate) extracted at the time
+     * the outbox event was created. Stored as a JSON-serialized map to bridge
+     * the trace context across the transactional outbox boundary.
+     *
+     * Populated by application services via TraceContextCarrier.extractCurrentTraceHeaders().
+     * Consumed by OutboxRelay to reinject the trace context before Kafka publish.
+     */
+    @Column(name = "metadata", columnDefinition = "text")
+    var metadata: String? = null
+
+    /**
      * Creation time. Used for ordering and monitoring lag.
      */
     @Column(name = "created_at", nullable = false, updatable = false)

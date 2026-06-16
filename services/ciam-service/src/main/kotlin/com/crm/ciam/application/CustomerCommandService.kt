@@ -12,6 +12,7 @@ import com.crm.ciam.infrastructure.persistence.OutboxEventRepository
 import com.crm.common.error.NotFoundException
 import com.crm.common.iam.JwtContext
 import com.crm.common.messaging.EventEnvelope
+import com.crm.common.telemetry.TraceContextCarrier
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import java.time.Instant
@@ -233,8 +234,9 @@ class CustomerCommandService(
 /**
  * Convert a domain event into an outbox entity for durable storage.
  */
-private fun CiamDomainEvent.toOutboxEntity(source: String, actorId: String?): OutboxEventEntity =
-    OutboxEventEntity().apply {
+private fun CiamDomainEvent.toOutboxEntity(source: String, actorId: String?): OutboxEventEntity {
+    val traceHeaders = TraceContextCarrier.extractCurrentTraceHeaders()
+    return OutboxEventEntity().apply {
         eventId = UUID.randomUUID()
         entityId = this@toOutboxEntity.entityId
         entityType = "customer"
@@ -250,7 +252,9 @@ private fun CiamDomainEvent.toOutboxEntity(source: String, actorId: String?): Ou
         this@apply.correlationId = null
         this@apply.actorId = actorId
         this@apply.createdAt = Instant.now()
+        this@apply.metadata = TraceContextCarrier.headersToJson(traceHeaders)
     }
+}
 
 /**
  * Serialize an [EventEnvelope] to JSON for outbox storage.

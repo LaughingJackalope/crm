@@ -33,6 +33,9 @@ class OutboxEventEntity : PanacheEntityBase {
     @Column(name = "retry_count", nullable = false)
     var retryCount: Int = 0
 
+    @Column(name = "metadata", columnDefinition = "text")
+    var metadata: String? = null
+
     companion object : PanacheCompanion<OutboxEventEntity>
 }
 

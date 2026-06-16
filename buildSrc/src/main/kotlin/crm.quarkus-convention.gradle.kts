@@ -27,6 +27,8 @@ dependencies {
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
+    // OpenTelemetry distributed tracing
+    implementation("io.quarkus:quarkus-opentelemetry")
     implementation("io.quarkus:quarkus-smallrye-health")
 
     // Testing

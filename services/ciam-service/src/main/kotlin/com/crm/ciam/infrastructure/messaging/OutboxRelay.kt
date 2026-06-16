@@ -1,9 +1,10 @@
 package com.crm.ciam.infrastructure.messaging
 
+import com.crm.common.telemetry.TraceContextCarrier
 import com.crm.ciam.infrastructure.persistence.OutboxEventRepository
 import com.crm.ciam.infrastructure.persistence.OutboxStatus
+import io.opentelemetry.context.Context
 import io.quarkus.scheduler.Scheduled
-import io.quarkus.scheduler.ScheduledExecution
 import io.smallrye.reactive.messaging.MutinyEmitter
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
@@ -85,15 +86,14 @@ class OutboxRelay @Inject constructor(
 
     @Transactional
     fun publishSingle(event: com.crm.ciam.infrastructure.persistence.OutboxEventEntity) {
+        val traceContext = TraceContextCarrier.createContextFromHeaders(event.metadata)
         try {
-            emitter.sendAndAwait(event.payload)
-
-            // Success: remove from outbox
+            traceContext.makeCurrent().use {
+                emitter.sendAndAwait(event.payload)
+            }
             outboxRepository.remove(event.eventId)
-            log.tracef("Relay: published and deleted event %s (%s)", event.eventId, event.eventType)
-
+            log.tracef("Relay: published event %s (%s)", event.eventId, event.eventType)
         } catch (ex: Exception) {
-            // Failure: increment retry counter
             log.warnf(ex, "Relay: failed to publish event %s (%s), retry %d",
                 event.eventId, event.eventType, event.retryCount + 1)
             outboxRepository.markFailed(event.eventId)
