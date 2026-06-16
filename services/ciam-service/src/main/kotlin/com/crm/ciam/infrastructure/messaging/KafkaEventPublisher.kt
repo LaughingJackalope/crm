@@ -14,7 +14,7 @@ import org.eclipse.microprofile.reactive.messaging.OnOverflow
 @ApplicationScoped
 class KafkaEventPublisher(
     @Channel("domain-events")
-    @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 1024)
+    @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 2048)
     private val emitter: MutinyEmitter<EventEnvelope<*>>,
 ) : DomainEventPublisher {
 
