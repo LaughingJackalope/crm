@@ -42,6 +42,7 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.username" to postgres.username,
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
+            "quarkus.hibernate-orm.database.generation" to "create",
 
             // ── Kafka ────────────────────────────────────────────────────────
             "kafka.bootstrap.servers" to kafka.bootstrapServers,
