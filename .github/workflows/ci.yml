@@ -163,15 +163,26 @@ jobs:
               "communication-service"
             )
           else
-            # Otherwise, check each service individually.
-            for svc in ciam-service sales-service support-service billing-service marketing-service communication-service; do
-              # The per-service filter already includes libs/ and buildSrc/,
-              # so a shared-lib change also triggers individual services.
-              # This is a belt-and-suspenders check on top of the global flag.
-              if [[ "${{ steps.filter.outputs[svc] }}" == "true" ]]; then
-                SERVICES+=("$svc")
-              fi
-            done
+            # Check each service individually — hardcoded because GitHub Actions
+            # expressions cannot use dynamic keys (steps.filter.outputs[svc] is invalid).
+            if [[ "${{ steps.filter.outputs['ciam-service'] }}" == "true" ]]; then
+              SERVICES+=("ciam-service")
+            fi
+            if [[ "${{ steps.filter.outputs['sales-service'] }}" == "true" ]]; then
+              SERVICES+=("sales-service")
+            fi
+            if [[ "${{ steps.filter.outputs['support-service'] }}" == "true" ]]; then
+              SERVICES+=("support-service")
+            fi
+            if [[ "${{ steps.filter.outputs['billing-service'] }}" == "true" ]]; then
+              SERVICES+=("billing-service")
+            fi
+            if [[ "${{ steps.filter.outputs['marketing-service'] }}" == "true" ]]; then
+              SERVICES+=("marketing-service")
+            fi
+            if [[ "${{ steps.filter.outputs['communication-service'] }}" == "true" ]]; then
+              SERVICES+=("communication-service")
+            fi
           fi
 
           # ── Emit outputs ────────────────────────────────────────────────
