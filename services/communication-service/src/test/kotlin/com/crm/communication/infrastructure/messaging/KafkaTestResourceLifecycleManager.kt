@@ -22,15 +22,16 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         postgres.start()
         kafka.start()
 
+        postgres.createConnection("").use { conn ->
+            conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS communication")
+        }
+
         return mapOf(
-            // ── Datasource ───────────────────────────────────────────────────
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
             "quarkus.datasource.username" to postgres.username,
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
-            "quarkus.hibernate-orm.database.generation" to "create",
 
-            // ── Kafka ────────────────────────────────────────────────────────
             "kafka.bootstrap.servers" to kafka.bootstrapServers,
             "mp.messaging.incoming.ciam-lifecycle-events.bootstrap.servers" to kafka.bootstrapServers,
             "mp.messaging.incoming.billing-events.bootstrap.servers" to kafka.bootstrapServers,
