@@ -1,16 +1,15 @@
 package com.crm.billing.infrastructure.messaging
 
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
-import org.testcontainers.containers.KafkaContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 
 /**
- * Starts Kafka and Postgres Testcontainers for billing-service integration tests.
+ * Starts Postgres Testcontainer for billing-service integration tests.
  *
- * Uses System.setProperty() to ensure the Testcontainers broker address is visible
- * to the Quarkus Kafka connector, which reads from system properties (not from the
- * QuarkusTestResourceLifecycleManager config source).
+ * Uses Quarkus Dev Services for Kafka (auto-configured) instead of manual
+ * Testcontainers Kafka. This avoids the bootstrap.servers config resolution
+ * issues with SmallRye Reactive Messaging channels.
  */
 class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
 
@@ -20,27 +19,13 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         .withUsername("crm")
         .withPassword("crm")
 
-    private val kafka = KafkaContainer(
-        DockerImageName.parse("confluentinc/cp-kafka:7.8.0")
-    )
-
     override fun start(): Map<String, String> {
         postgres.start()
-        kafka.start()
 
         // ── Create service-specific schema ────────────────────────────────────
         postgres.createConnection("").use { conn ->
             conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS billing")
         }
-
-        // ── Set system properties for Kafka bootstrap ─────────────────────────
-        // System properties have highest priority in Quarkus config and are
-        // reliably picked up by the SmallRye Kafka connector for ALL channels.
-        val kafkaBrokers = kafka.bootstrapServers
-        System.setProperty("kafka.bootstrap.servers", kafkaBrokers)
-        System.setProperty("mp.messaging.incoming.sales-opportunity-events.bootstrap.servers", kafkaBrokers)
-        System.setProperty("mp.messaging.outgoing.billing-events.bootstrap.servers", kafkaBrokers)
-        System.setProperty("mp.messaging.outgoing.domain-events.bootstrap.servers", kafkaBrokers)
 
         return mapOf(
             // ── Datasource ───────────────────────────────────────────────────
@@ -49,11 +34,16 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
+
+            // ── Dev Services for Kafka ───────────────────────────────────────
+            // Disables the default devservices.kafka.enabled=true so we can
+            // use our own Testcontainers Kafka via the KafkaDevServicesBuildTimeConfig.
+            // Actually, we WANT dev services — it auto-configures all channels.
+            "quarkus.kafka.devservices.enabled" to "true",
         )
     }
 
     override fun stop() {
-        kafka.stop()
         postgres.stop()
     }
 }

@@ -1,12 +1,12 @@
 package com.crm.support.infrastructure.messaging
 
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
-import org.testcontainers.containers.KafkaContainer
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 
 /**
- * Starts Kafka and Postgres Testcontainers for support-service integration tests.
+ * Starts Postgres Testcontainer for support-service integration tests.
+ * Uses Quarkus Dev Services for Kafka.
  */
 class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
 
@@ -16,21 +16,12 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
         .withUsername("crm")
         .withPassword("crm")
 
-    private val kafka = KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.8.0"))
-
     override fun start(): Map<String, String> {
         postgres.start()
-        kafka.start()
 
         postgres.createConnection("").use { conn ->
             conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS support")
         }
-
-        val kafkaBrokers = kafka.bootstrapServers
-        System.setProperty("kafka.bootstrap.servers", kafkaBrokers)
-        System.setProperty("mp.messaging.incoming.ciam-lifecycle-events.bootstrap.servers", kafkaBrokers)
-        System.setProperty("mp.messaging.outgoing.support-events.bootstrap.servers", kafkaBrokers)
-        System.setProperty("mp.messaging.outgoing.domain-events.bootstrap.servers", kafkaBrokers)
 
         return mapOf(
             "quarkus.datasource.jdbc.url" to postgres.jdbcUrl,
@@ -38,11 +29,11 @@ class KafkaTestResourceLifecycleManager : QuarkusTestResourceLifecycleManager {
             "quarkus.datasource.password" to postgres.password,
             "quarkus.datasource.db-kind" to "postgresql",
             "quarkus.hibernate-orm.database.generation" to "create",
+            "quarkus.kafka.devservices.enabled" to "true",
         )
     }
 
     override fun stop() {
-        kafka.stop()
         postgres.stop()
     }
 }
