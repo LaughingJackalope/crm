@@ -548,13 +548,16 @@ jobs:
           SERVICE="${{ matrix.service }}"
           VERSION="${{ needs.detect-changes.outputs.build-version }}"
 
-          ./gradlew :services:${SERVICE}:build \
+          # Run quarkusBuild + Jib in one step. Gradle reuses the compilation
+          # cache from the package job, so this is near-instant.
+          # Jib builds from the quarkus-app directory that quarkusBuild assembles.
+          ./gradlew :services:${SERVICE}:quarkusBuild \
             -Pversion="${VERSION}" \
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
+            -DskipTests \
             --no-daemon \
-            --build-cache \
-            --parallel
+            --build-cache
 
       - name: Verify image — ${{ matrix.service }}
         run: |
