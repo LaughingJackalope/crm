@@ -1,8 +1,6 @@
 # Local development infrastructure for all 6 Bounded Context services.
 # Usage: docker compose up -d
 
-version: "3.9"
-
 services:
   # ── Databases (one schema per Bounded Context) ─────────────────────────────
   postgres:
@@ -12,7 +10,7 @@ services:
       POSTGRES_PASSWORD: crm
       POSTGRES_DB: crm
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init-schemas.sql:/docker-entrypoint-initdb.d/init-schemas.sql
@@ -48,55 +46,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-
-  # ── Observability ──────────────────────────────────────────────────────────
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.113.0
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./infra/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml
-    ports:
-      - "4317:4317"    # OTLP gRPC
-      - "4318:4318"    # OTLP HTTP
-    depends_on:
-      - kafka
-
-  jaeger:
-    image: jaegertracing/all-in-one:1.63
-    ports:
-      - "16686:16686"   # UI
-      - "14268:14268"   # Collector HTTP
-
-  prometheus:
-    image: prom/prometheus:v2.55.1
-    volumes:
-      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
-
-  grafana:
-    image: grafana/grafana:11.3.0
-    ports:
-      - "3000:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-
-  # ── Keycloak (OIDC) ───────────────────────────────────────────────────────
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    command: start-dev
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/crm
-      KC_DB_USERNAME: crm
-      KC_DB_PASSWORD: crm
-    ports:
-      - "9090:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
 
 volumes:
   postgres_data:

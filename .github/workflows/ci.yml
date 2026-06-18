@@ -493,3 +493,72 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           overwrite: true
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB: container-image
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Builds and pushes OCI container images for each affected service using
+  # Quarkus Jib (no Docker daemon required). Images are pushed to GitHub
+  # Container Registry (GHCR).
+  # ═══════════════════════════════════════════════════════════════════════════
+  container-image:
+    name: Container Image (${{ matrix.service }})
+    needs: [detect-changes, package]
+    if: needs.detect-changes.outputs.any-changed == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs['affected-services']) }}
+      max-parallel: 6
+      fail-fast: false
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Gradle with cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Build & push container image — ${{ matrix.service }}
+        env:
+          QUARKUS_CONTAINER_IMAGE_REGISTRY: ghcr.io
+          QUARKUS_CONTAINER_IMAGE_ORGANIZATION: ${{ github.repository_owner }}
+          QUARKUS_CONTAINER_IMAGE_NAME: ${{ matrix.service }}
+          QUARKUS_CONTAINER_IMAGE_TAG: ${{ needs.detect-changes.outputs.build-version }}
+          QUARKUS_CONTAINER_IMAGE_ADDITIONAL_TAGS: ${{ github.ref == 'refs/heads/main' && 'latest' || '' }}
+          QUARKUS_CONTAINER_IMAGE_PUSH: true
+          QUARKUS_CONTAINER_IMAGE_USERNAME: ${{ github.actor }}
+          QUARKUS_CONTAINER_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SERVICE="${{ matrix.service }}"
+          VERSION="${{ needs.detect-changes.outputs.build-version }}"
+
+          ./gradlew :services:${SERVICE}:build \
+            -Pversion="${VERSION}" \
+            -Dquarkus.container-image.build=true \
+            -Dquarkus.container-image.push=true \
+            --no-daemon \
+            --build-cache \
+            --parallel
+
+      - name: Verify image — ${{ matrix.service }}
+        run: |
+          echo "✅ Image pushed: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ needs.detect-changes.outputs.build-version }}"
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "✅ Also tagged: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:latest"
+          fi

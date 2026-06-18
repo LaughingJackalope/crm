@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - kafka.yaml
+  - postgres-ciam.yaml
+  - postgres-sales.yaml
+  - postgres-billing.yaml
+  - postgres-support.yaml
+  - postgres-marketing.yaml
+  - postgres-communication.yaml

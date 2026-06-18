@@ -39,6 +39,9 @@ class CustomerEntity : PanacheEntityBase {
     @Column(name = "updated_at", nullable = false)
     lateinit var updatedAt: Instant
 
+    @OneToMany(mappedBy = "customer", fetch = FetchType.LAZY)
+    var contacts: MutableList<ContactEntity> = mutableListOf()
+
     companion object : PanacheCompanion<CustomerEntity> {
         fun findByCustomerId(id: UUID): CustomerEntity? = find("customerId", id).firstResult()
         fun findByEmail(email: String): CustomerEntity? =

@@ -1,0 +1,57 @@
+# Kind cluster configuration for local CRM development.
+# Usage: kind create cluster --name crm --config k8s/kind-config.yaml
+#
+# This creates a single-node cluster with port mappings for all 6 services
+# plus infrastructure (Kafka, Postgres per service, etc.).
+#
+# Port mappings (host → cluster):
+#   30081-30086  → service NodePorts (CIAM, Sales, Billing, Support, Marketing, Comms)
+#   9092         → Kafka
+#   5432-5437    → Postgres per service (CIAM, Sales, Billing, Support, Marketing, Comms)
+#   2181         → Zookeeper
+#   16686        → Jaeger UI (optional)
+#   9090         → Prometheus (optional)
+#   3000         → Grafana (optional)
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: crm
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # ── Services (NodePort range 30000-32767) ──────────────────────────
+      - containerPort: 30081
+        hostPort: 8081
+        protocol: TCP
+      - containerPort: 30082
+        hostPort: 8082
+        protocol: TCP
+      - containerPort: 30083
+        hostPort: 8083
+        protocol: TCP
+      - containerPort: 30084
+        hostPort: 8084
+        protocol: TCP
+      - containerPort: 30085
+        hostPort: 8085
+        protocol: TCP
+      - containerPort: 30086
+        hostPort: 8086
+        protocol: TCP
+      # ── Infrastructure ─────────────────────────────────────────────────
+      - containerPort: 9092
+        hostPort: 9092
+        protocol: TCP
+      - containerPort: 2181
+        hostPort: 2181
+        protocol: TCP
+      # ── Observability (optional) ──────────────────────────────────────
+      - containerPort: 30186
+        hostPort: 16686
+        protocol: TCP

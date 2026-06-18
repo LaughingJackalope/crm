@@ -32,13 +32,21 @@ dependencies {
     implementation("io.quarkus:quarkus-arc")
     implementation("io.quarkus:quarkus-rest")
     implementation("io.quarkus:quarkus-rest-jackson")
+    implementation("io.quarkus:quarkus-jackson")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.1")
     implementation("io.quarkus:quarkus-kotlin")
+
+    // Container image (Jib — no Docker daemon needed)
+    implementation("io.quarkus:quarkus-container-image-jib")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
     // OpenTelemetry distributed tracing
     implementation("io.quarkus:quarkus-opentelemetry")
     implementation("io.quarkus:quarkus-smallrye-health")
+
+    // Database migration
+    implementation("io.quarkus:quarkus-flyway")
 
     // Testing
     testImplementation("io.quarkus:quarkus-junit5")

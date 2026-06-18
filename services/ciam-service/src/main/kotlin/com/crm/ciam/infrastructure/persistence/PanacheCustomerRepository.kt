@@ -39,6 +39,28 @@ class PanacheCustomerRepository : CustomerRepository {
         }
 
         entity.persist()
+
+        // Persist contacts — delete old ones first (simple full-replace strategy)
+        ContactEntity.list("customer", entity).forEach { it.delete() }
+        customer.contacts.forEach { contact ->
+            ContactEntity().apply {
+                contactId = contact.contactId.takeIf { it != UUID.randomUUID() } ?: UUID.randomUUID()
+                this.customer = entity
+                firstName = contact.firstName
+                lastName = contact.lastName
+                title = contact.title
+                email = EmailAddressEmbeddable().apply { value = contact.email.value }
+                phone = contact.phone?.let {
+                    PhoneNumberEmbeddable().apply {
+                        value = it.value
+                        countryCode = it.countryCode
+                        type = it.type
+                    }
+                }
+                createdAt = contact.createdAt
+            }.persist()
+        }
+
         return entity.toDomain()
     }
 

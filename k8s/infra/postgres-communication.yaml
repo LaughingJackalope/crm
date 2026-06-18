@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-communication
+  namespace: crm
+spec:
+  serviceName: postgres-communication
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-communication
+  template:
+    metadata:
+      labels:
+        app: postgres-communication
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: crm
+            - name: POSTGRES_USER
+              value: crm
+            - name: POSTGRES_PASSWORD
+              value: crm
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-communication
+  namespace: crm
+spec:
+  selector:
+    app: postgres-communication
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None
