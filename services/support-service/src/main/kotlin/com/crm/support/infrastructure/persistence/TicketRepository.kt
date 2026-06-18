@@ -27,6 +27,9 @@ class TicketRepository {
     fun findOverdueTickets(now: Instant): List<Ticket> =
         TicketEntity.findOverdueTickets(now).map { it.toDomain() }
 
+    fun findAll(): List<Ticket> =
+        TicketEntity.findAllTickets().map { it.toDomain() }
+
     fun save(ticket: Ticket): Ticket {
         val entity = ticket.toEntity()
         entity.persist()

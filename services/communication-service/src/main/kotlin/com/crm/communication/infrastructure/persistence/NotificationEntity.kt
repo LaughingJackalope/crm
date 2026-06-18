@@ -77,6 +77,8 @@ class NotificationEntity : PanacheEntityBase {
 
         fun findByRecipientId(recipientId: String): List<NotificationEntity> =
             list("recipientId", recipientId)
+        fun listAllSorted(): List<NotificationEntity> =
+            list("order by createdAt desc")
     }
 }
 

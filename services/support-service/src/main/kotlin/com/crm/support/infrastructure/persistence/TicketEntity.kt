@@ -75,6 +75,9 @@ class TicketEntity : PanacheEntityBase {
         fun findOverdueTickets(now: Instant): List<TicketEntity> =
             find("slaDeadline IS NOT NULL AND slaDeadline < ?1 AND status NOT IN (?2, ?3)",
                 now, TicketStatus.CLOSED, TicketStatus.RESOLVED).list()
+
+        fun findAllTickets(): List<TicketEntity> =
+            listAll()
     }
 }
 

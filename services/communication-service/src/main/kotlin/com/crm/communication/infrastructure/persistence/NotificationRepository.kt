@@ -18,6 +18,8 @@ class NotificationRepository {
 
     fun findByRecipientId(recipientId: String): List<Notification> =
         NotificationEntity.findByRecipientId(recipientId).map { it.toDomain() }
+    fun findAll(): List<Notification> =
+        NotificationEntity.listAllSorted().map { it.toDomain() }
 
     fun save(notification: Notification): Notification {
         val entity = notification.toEntity()

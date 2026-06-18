@@ -21,6 +21,9 @@ class CampaignRepository {
     fun findActiveCampaigns(): List<Campaign> =
         CampaignEntity.findActiveCampaigns().map { it.toDomain() }
 
+    fun findAll(): List<Campaign> =
+        CampaignEntity.listAll().map { it.toDomain() }
+
     fun save(campaign: Campaign): Campaign {
         val entity = campaign.toEntity()
         entity.persist()

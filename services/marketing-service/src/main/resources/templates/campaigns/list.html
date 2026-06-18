@@ -1,0 +1,133 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}Campaigns — Marketing{/title}
+{#topbar-title}Campaigns{/topbar-title}
+{#topbar-actions}
+    <a href="/marketing/campaigns/new" class="btn btn-primary btn-sm">+ New Campaign</a>
+{/topbar-actions}
+{#activePage}campaigns{/activePage}
+
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">All Campaigns</span>
+        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+            {campaigns.size} total
+        </span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <!-- Search & filters -->
+        <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
+            <input type="text"
+                   class="search-input"
+                   placeholder="Search campaigns…"
+                   name="q"
+                   value="{q ?: ''}"
+                   hx-get="/marketing/campaigns"
+                   hx-target="#campaign-table-container"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-indicator=".search-spinner">
+            <select class="filter-select"
+                    name="status"
+                    hx-get="/marketing/campaigns"
+                    hx-target="#campaign-table-container"
+                    hx-trigger="change">
+                <option value="">All statuses</option>
+                {#for status in statuses}
+                <option value="{status.name}" {#if status.name == selectedStatus}selected{/if}>
+                    {status.label}
+                </option>
+                {/for}
+            </select>
+            <span class="search-spinner htmx-indicator"><span class="spinner"></span></span>
+        </div>
+
+        <!-- Table container (htmx swap target) -->
+        <div id="campaign-table-container">
+            {#if campaigns.size > 0}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Source</th>
+                        <th>Budget</th>
+                        <th>Sent</th>
+                        <th>Open Rate</th>
+                        <th>Click Rate</th>
+                        <th>Conversions</th>
+                        <th>ROAS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {#for campaign in campaigns}
+                    <tr style="cursor: pointer;" onclick="window.location.href='/marketing/campaigns/{campaign.id}'">
+                        <td>
+                            <div style="font-weight: 500;">{campaign.name}</div>
+                            {#if campaign.startDate}
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                {campaign.startDate}{#if campaign.endDate} — {campaign.endDate}{/if}
+                            </div>
+                            {/if}
+                        </td>
+                        <td>
+                            <span class="badge badge-{campaign.status.name.toLowerCase()}">
+                                {campaign.statusLabel}
+                            </span>
+                        </td>
+                        <td style="color: var(--text-muted);">{campaign.source}</td>
+                        <td>{campaign.budget}</td>
+                        <td>{campaign.sent}</td>
+                        <td>
+                            {#if campaign.sent > 0}
+                                {((campaign.opened * 100) / campaign.sent)}%
+                            {#else}
+                                —
+                            {/if}
+                        </td>
+                        <td>
+                            {#if campaign.sent > 0}
+                                {((campaign.clicked * 100) / campaign.sent)}%
+                            {#else}
+                                —
+                            {/if}
+                        </td>
+                        <td>{campaign.conversions}</td>
+                        <td>{campaign.roas}</td>
+                    </tr>
+                    {/for}
+                </tbody>
+            </table>
+
+            <!-- Pagination -->
+            {#if totalPages > 1}
+            <div class="pagination" style="padding: 14px 18px;">
+                <a class="page-btn {#if page == 1}disabled{/if}"
+                   href="/marketing/campaigns?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-get="/marketing/campaigns?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-target="#campaign-table-container">←</a>
+                {#for p in pages}
+                <a class="page-btn {#if p == page}active{/if}"
+                   href="/marketing/campaigns?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-get="/marketing/campaigns?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-target="#campaign-table-container">{p}</a>
+                {/for}
+                <a class="page-btn {#if page == totalPages}disabled{/if}"
+                   href="/marketing/campaigns?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-get="/marketing/campaigns?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-target="#campaign-table-container">→</a>
+            </div>
+            {/if}
+
+            {#else}
+            <div class="empty">
+                <div class="empty-icon">📣</div>
+                <div class="empty-text">No campaigns found</div>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

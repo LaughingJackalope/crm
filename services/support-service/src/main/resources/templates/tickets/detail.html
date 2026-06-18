@@ -1,0 +1,169 @@
+{#include layout.html}
+{#title}{ticket.subject} — Support{/title}
+{#topbar-title}{ticket.subject}{/topbar-title}
+{#topbar-actions}
+    <a href="/support/tickets" class="btn btn-ghost btn-sm">← Back to Tickets</a>
+{/topbar-actions}
+
+{#content}
+<div style="display: grid; grid-template-columns: 1fr 320px; gap: 24px;">
+    <!-- Main detail -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Ticket Details</span>
+            <span style="margin-left: auto; display: flex; gap: 6px;">
+                <span class="badge badge-priority-{ticket.priority.name.toLowerCase()}">{ticket.priorityLabel}</span>
+                <span class="badge badge-{ticket.status.name.toLowerCase().replace('_', '-')}">{ticket.statusLabel}</span>
+            </span>
+        </div>
+        <div class="card-body">
+            <!-- Subject -->
+            <div style="margin-bottom: 20px;">
+                <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Subject</label>
+                <div style="margin-top: 4px; font-size: 18px; font-weight: 600;">{ticket.subject}</div>
+            </div>
+
+            <!-- Info grid -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Status</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.statusLabel}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Priority</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.priorityLabel}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Requester</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.requesterId}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Assignee</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.assigneeId ?: 'Unassigned'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Queue</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.queueId ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">SLA Deadline</label>
+                    <div style="margin-top: 4px; font-size: 14px;">
+                        {#if ticket.isSlaBreached}
+                        <span class="sla-breached">⚠ Breached</span>
+                        {#else if ticket.slaDeadline}
+                        <span>{ticket.slaDeadline}</span>
+                        {#else}
+                        <span style="color: var(--text-muted);">—</span>
+                        {/if}
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Created</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.createdAt}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Updated</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{ticket.updatedAt}</div>
+                </div>
+            </div>
+
+            <!-- Ticket ID -->
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
+                <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Ticket ID</label>
+                <div style="margin-top: 4px; font-size: 12px; color: var(--text-muted); font-family: monospace;">{ticket.id}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar: Actions -->
+    <div>
+        <!-- Action panel -->
+        <div class="card" style="margin-bottom: 24px;">
+            <div class="card-header">
+                <span class="card-title">Actions</span>
+            </div>
+            <div class="card-body">
+                <div class="action-panel">
+                    <!-- Assign button — enabled for OPEN, IN_PROGRESS, PENDING_CUSTOMER -->
+                    <button class="btn btn-primary btn-sm"
+                            hx-post="/api/v1/tickets/{ticket.id}/assign"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML"
+                            hx-vals='js:{"assigneeId": prompt("Assignee ID")}'
+                            {#if ticket.status == 'CLOSED' || ticket.status == 'RESOLVED'}disabled{/if}>
+                        Assign
+                    </button>
+
+                    <!-- Change Priority button — enabled for non-closed/non-resolved -->
+                    <button class="btn btn-ghost btn-sm"
+                            hx-post="/api/v1/tickets/{ticket.id}/change-priority"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML"
+                            hx-vals='js:{"priority": prompt("New priority (LOW/MEDIUM/HIGH/URGENT)")}'
+                            {#if ticket.status == 'CLOSED' || ticket.status == 'RESOLVED'}disabled{/if}>
+                        Change Priority
+                    </button>
+
+                    <!-- Resolve — enabled for non-resolved, non-closed -->
+                    <button class="btn btn-primary btn-sm"
+                            hx-post="/api/v1/tickets/{ticket.id}/resolve"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML"
+                            {#if ticket.status == 'RESOLVED' || ticket.status == 'CLOSED'}disabled{/if}>
+                        Resolve
+                    </button>
+
+                    <!-- Close — enabled only for RESOLVED -->
+                    <button class="btn btn-ghost btn-sm"
+                            hx-post="/api/v1/tickets/{ticket.id}/close"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML"
+                            {#if ticket.status != 'RESOLVED'}disabled{/if}>
+                        Close
+                    </button>
+
+                    <!-- Reopen — enabled for CLOSED or RESOLVED -->
+                    <button class="btn btn-ghost btn-sm"
+                            hx-post="/api/v1/tickets/{ticket.id}/reopen"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML"
+                            {#if ticket.status != 'CLOSED' && ticket.status != 'RESOLVED'}disabled{/if}>
+                        Reopen
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status lifecycle -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Status</span>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    <div class="timeline-item">
+                        <span class="timeline-dot {#if ticket.status.name == 'OPEN'}active{#else if ticket.status.name == 'IN_PROGRESS' || ticket.status.name == 'PENDING_CUSTOMER' || ticket.status.name == 'RESOLVED' || ticket.status.name == 'CLOSED'}done{/if}"></span>
+                        <span class="timeline-label">Open</span>
+                    </div>
+                    <div class="timeline-item">
+                        <span class="timeline-dot {#if ticket.status.name == 'IN_PROGRESS'}active{#else if ticket.status.name == 'PENDING_CUSTOMER' || ticket.status.name == 'RESOLVED' || ticket.status.name == 'CLOSED'}done{/if}"></span>
+                        <span class="timeline-label">In Progress</span>
+                    </div>
+                    <div class="timeline-item">
+                        <span class="timeline-dot {#if ticket.status.name == 'PENDING_CUSTOMER'}active{#else if ticket.status.name == 'RESOLVED' || ticket.status.name == 'CLOSED'}done{/if}"></span>
+                        <span class="timeline-label">Pending Customer</span>
+                    </div>
+                    <div class="timeline-item">
+                        <span class="timeline-dot {#if ticket.status.name == 'RESOLVED'}active{#else if ticket.status.name == 'CLOSED'}done{/if}"></span>
+                        <span class="timeline-label">Resolved</span>
+                    </div>
+                    <div class="timeline-item">
+                        <span class="timeline-dot {#if ticket.status.name == 'CLOSED'}active{/if}"></span>
+                        <span class="timeline-label">Closed</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

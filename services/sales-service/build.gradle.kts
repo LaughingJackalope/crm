@@ -15,6 +15,11 @@ dependencies {
     implementation(project(":libs:contracts:open-api"))
     implementation(project(":libs:contracts:async-api"))
     implementation(project(":libs:common"))
+    implementation(project(":libs:common-ui"))
+
+    // ── Qute templating ────────────────────────────────────────────────────
+    implementation("io.quarkus:quarkus-rest-qute")
+    implementation("io.quarkus:quarkus-qute")
 
     implementation(libs.quarkus.hibernate.orm.panache.kotlin)
     implementation(libs.quarkus.jdbc.postgresql)

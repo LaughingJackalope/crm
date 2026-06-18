@@ -14,7 +14,7 @@ buildCache {
         directory = File(rootDir, ".gradle/build-cache")
     }
     // Uncomment for remote cache (e.g., Gradle Enterprise):
-    // remote<HttpBuildCache> {
+    // remote(HttpBuildCache::class) {
     //     url = uri("https://gradle-cache.example.com/cache/")
     //     isEnabled = true
     //     isPush = System.getenv("CI") != null
@@ -53,6 +53,7 @@ include(
 include(
     ":libs:common",
     ":libs:common-test",
+    ":libs:common-ui",
 )
 
 // ── Bounded Context service modules ──────────────────────────────────────────

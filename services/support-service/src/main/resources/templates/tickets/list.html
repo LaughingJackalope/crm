@@ -1,0 +1,133 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}Tickets — Support{/title}
+{#topbar-title}Tickets{/topbar-title}
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">All Tickets</span>
+        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+            {total} total
+        </span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <!-- Search & filters -->
+        <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
+            <input type="text"
+                   style="flex: 1; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; outline: none;"
+                   placeholder="Search tickets…"
+                   name="q"
+                   value="{q ?: ''}"
+                   hx-get="/support/tickets"
+                   hx-target="#ticket-table-container"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-include="[name='status'], [name='priority']"
+                   hx-indicator=".search-spinner">
+            <select style="padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; outline: none;"
+                    name="status"
+                    hx-get="/support/tickets"
+                    hx-target="#ticket-table-container"
+                    hx-trigger="change"
+                    hx-include="[name='q'], [name='priority']">
+                <option value="">All statuses</option>
+                {#for st in statuses}
+                <option value="{st.name}" {#if st.name == selectedStatus}selected{/if}>
+                    {st.label}
+                </option>
+                {/for}
+            </select>
+            <select style="padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; outline: none;"
+                    name="priority"
+                    hx-get="/support/tickets"
+                    hx-target="#ticket-table-container"
+                    hx-trigger="change"
+                    hx-include="[name='q'], [name='status']">
+                <option value="">All priorities</option>
+                {#for pr in priorities}
+                <option value="{pr.name}" {#if pr.name == selectedPriority}selected{/if}>
+                    {pr.label}
+                </option>
+                {/for}
+            </select>
+            <span class="search-spinner htmx-indicator"><span class="spinner"></span></span>
+        </div>
+
+        <!-- Table container (htmx swap target) -->
+        <div id="ticket-table-container">
+            {#if tickets.size > 0}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Subject</th>
+                        <th>Status</th>
+                        <th>Priority</th>
+                        <th>Assignee</th>
+                        <th>SLA</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {#for ticket in tickets}
+                    <tr style="cursor: pointer;" onclick="window.location.href='/support/tickets/{ticket.id}'">
+                        <td>
+                            <div style="font-weight: 500;">{ticket.subject}</div>
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">{ticket.id.substring(0, 8)}…</div>
+                        </td>
+                        <td>
+                            <span class="badge badge-{ticket.status.name.toLowerCase().replace('_', '-')}">
+                                {ticket.statusLabel}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-priority-{ticket.priority.name.toLowerCase()}">
+                                {ticket.priorityLabel}
+                            </span>
+                        </td>
+                        <td style="color: var(--text-muted);">{ticket.assigneeId ?: '—'}</td>
+                        <td>
+                            {#if ticket.isSlaBreached}
+                            <span class="sla-breached">⚠ BREACHED</span>
+                            {#else if ticket.slaDeadline}
+                            <span style="font-size: 12px; color: var(--text-muted);">{ticket.slaDeadline}</span>
+                            {#else}
+                            <span style="color: var(--text-muted);">—</span>
+                            {/if}
+                        </td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{ticket.createdAt}</td>
+                    </tr>
+                    {/for}
+                </tbody>
+            </table>
+
+            <!-- Pagination -->
+            {#if totalPages > 1}
+            <div class="pagination" style="padding: 14px 18px;">
+                <a class="page-btn {#if page == 1}disabled{/if}"
+                   href="/support/tickets?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}&amp;priority={selectedPriority ?: ''}"
+                   hx-get="/support/tickets?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}&amp;priority={selectedPriority ?: ''}"
+                   hx-target="#ticket-table-container">←</a>
+                {#for p in pages}
+                <a class="page-btn {#if p == page}active{/if}"
+                   href="/support/tickets?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}&amp;priority={selectedPriority ?: ''}"
+                   hx-get="/support/tickets?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}&amp;priority={selectedPriority ?: ''}"
+                   hx-target="#ticket-table-container">{p}</a>
+                {/for}
+                <a class="page-btn {#if page == totalPages}disabled{/if}"
+                   href="/support/tickets?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}&amp;priority={selectedPriority ?: ''}"
+                   hx-get="/support/tickets?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}&amp;priority={selectedPriority ?: ''}"
+                   hx-target="#ticket-table-container">→</a>
+            </div>
+            {/if}
+
+            {#else}
+            <div class="empty">
+                <div class="empty-icon">🎫</div>
+                <div class="empty-text">No tickets found</div>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

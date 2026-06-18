@@ -1,0 +1,141 @@
+{#include layout.html}
+{#title}Messages — Comms{/title}
+{#topbar-title}Messages{/topbar-title}
+
+{#content}
+<div class="page-header">
+    <h1>Messages</h1>
+    <p class="text-muted">All outbound and inbound messages across channels</p>
+</div>
+
+<!-- ── Filter bar ─────────────────────────────────────────────────────── -->
+<div class="card filter-bar">
+    <form class="filter-row" method="get" action="/comms/messages">
+        <div class="filter-group">
+            <input type="text" name="q" value="{q ?: ''}" placeholder="Search messages..."
+                   class="form-input" style="min-width: 220px;"
+                   hx-get="/comms/messages"
+                   hx-target="#message-table-container"
+                   hx-include="[name='channel'],[name='direction'],[name='status']"
+                   hx-trigger="input changed delay:300ms"
+                   hx-push-url="true"/>
+        </div>
+        <div class="filter-group">
+            <select name="channel" class="form-select"
+                    hx-get="/comms/messages"
+                    hx-target="#message-table-container"
+                    hx-include="[name='q'],[name='direction'],[name='status']"
+                    hx-trigger="change"
+                    hx-push-url="true">
+                <option value="">All Channels</option>
+                {#for ch in channels}
+                <option value="{ch.name}" {#if selectedChannel == ch.name}selected{/if}>{ch.label}</option>
+                {/for}
+            </select>
+        </div>
+        <div class="filter-group">
+            <select name="direction" class="form-select"
+                    hx-get="/comms/messages"
+                    hx-target="#message-table-container"
+                    hx-include="[name='q'],[name='channel'],[name='status']"
+                    hx-trigger="change"
+                    hx-push-url="true">
+                <option value="">All Directions</option>
+                <option value="outbound" {#if selectedDirection == 'outbound'}selected{/if}>Outbound</option>
+                <option value="inbound" {#if selectedDirection == 'inbound'}selected{/if}>Inbound</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <select name="status" class="form-select"
+                    hx-get="/comms/messages"
+                    hx-target="#message-table-container"
+                    hx-include="[name='q'],[name='channel'],[name='direction']"
+                    hx-trigger="change"
+                    hx-push-url="true">
+                <option value="">All Statuses</option>
+                {#for st in statuses}
+                <option value="{st.name}" {#if selectedStatus == st.name}selected{/if}>{st.label}</option>
+                {/for}
+            </select>
+        </div>
+    </form>
+</div>
+
+<!-- ── Message table ──────────────────────────────────────────────────── -->
+<div id="message-table-container">
+    {#if messages.size > 0}
+    <div class="card table-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Channel</th>
+                    <th>Direction</th>
+                    <th>Status</th>
+                    <th>Recipient</th>
+                    <th>Sent At</th>
+                    <th>Delivered At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {#for message in messages}
+                <tr class="clickable-row" onclick="window.location='/comms/messages/{message.id}'">
+                    <td>
+                        <a href="/comms/messages/{message.id}" class="link-cell">
+                            {message.subject ?: '(no subject)'}
+                        </a>
+                    </td>
+                    <td><span class="badge badge-channel">{message.channelLabel}</span></td>
+                    <td><span class="badge badge-direction">{message.direction}</span></td>
+                    <td>
+                        {#if message.status.name == 'PENDING'}
+                        <span class="badge badge-gray">{message.statusLabel}</span>
+                        {#else if message.status.name == 'QUEUED'}
+                        <span class="badge badge-blue">{message.statusLabel}</span>
+                        {#else if message.status.name == 'SENT'}
+                        <span class="badge badge-yellow">{message.statusLabel}</span>
+                        {#else if message.status.name == 'DELIVERED'}
+                        <span class="badge badge-green">{message.statusLabel}</span>
+                        {#else if message.status.name == 'FAILED'}
+                        <span class="badge badge-red">{message.statusLabel}</span>
+                        {#else if message.status.name == 'BOUNCED'}
+                        <span class="badge badge-orange">{message.statusLabel}</span>
+                        {/if}
+                    </td>
+                    <td class="text-mono text-sm">{message.recipientId}</td>
+                    <td class="text-muted text-sm">{message.sentAt ?: '—'}</td>
+                    <td class="text-muted text-sm">{message.deliveredAt ?: '—'}</td>
+                </tr>
+                {/for}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ── Pagination ──────────────────────────────────────────────────── -->
+    {#if totalPages > 1}
+    <div class="pagination">
+        <a href="/comms/messages?page={page - 1}&size={size}&q={q ?: ''}&channel={selectedChannel ?: ''}&direction={selectedDirection ?: ''}&status={selectedStatus ?: ''}"
+           class="page-link {#if page <= 1}disabled{/if}">← Prev</a>
+        {#for p in pages}
+        <a href="/comms/messages?page={p}&size={size}&q={q ?: ''}&channel={selectedChannel ?: ''}&direction={selectedDirection ?: ''}&status={selectedStatus ?: ''}"
+           class="page-link {#if p == page}active{/if}">{p}</a>
+        {/for}
+        <a href="/comms/messages?page={page + 1}&size={size}&q={q ?: ''}&channel={selectedChannel ?: ''}&direction={selectedDirection ?: ''}&status={selectedStatus ?: ''}"
+           class="page-link {#if page >= totalPages}disabled{/if}">Next →</a>
+    </div>
+    {/if}
+    {#else}
+    <div class="card empty-state">
+        <div class="empty-state-icon">✉️</div>
+        <h3>No messages found</h3>
+        <p class="text-muted">No messages match your current filters.</p>
+    </div>
+    {/if}
+</div>
+
+<!-- ── Summary ────────────────────────────────────────────────────────── -->
+<div class="text-muted text-sm" style="margin-top: 8px;">
+    Showing {messages.size} of {total} messages {#if totalPages > 1}(page {page} of {totalPages}){/if}
+</div>
+{/content}
+{/include}

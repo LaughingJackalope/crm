@@ -1,0 +1,132 @@
+{#include layout.html}
+{#title}Message Detail — Comms{/title}
+{#topbar-title}Message Detail{/topbar-title}
+{#topbar-actions}
+<a href="/comms/messages" class="btn btn-sm">← Back to Messages</a>
+{/topbar-actions}
+
+{#content}
+{#if message}
+<div class="detail-layout">
+    <!-- ── Left column ──────────────────────────────────────────────────── -->
+    <div class="detail-main">
+        <div class="card">
+            <div class="card-header">
+                <h2>{message.subject ?: '(no subject)'}</h2>
+                <div class="card-meta">
+                    {#if message.status.name == 'PENDING'}
+                    <span class="badge badge-gray">{message.statusLabel}</span>
+                    {#else if message.status.name == 'QUEUED'}
+                    <span class="badge badge-blue">{message.statusLabel}</span>
+                    {#else if message.status.name == 'SENT'}
+                    <span class="badge badge-yellow">{message.statusLabel}</span>
+                    {#else if message.status.name == 'DELIVERED'}
+                    <span class="badge badge-green">{message.statusLabel}</span>
+                    {#else if message.status.name == 'FAILED'}
+                    <span class="badge badge-red">{message.statusLabel}</span>
+                    {#else if message.status.name == 'BOUNCED'}
+                    <span class="badge badge-orange">{message.statusLabel}</span>
+                    {/if}
+                    <span class="badge badge-channel">{message.channelLabel}</span>
+                    <span class="badge badge-direction">{message.direction}</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <table class="detail-table">
+                    <tr>
+                        <th>Message ID</th>
+                        <td class="text-mono text-sm">{message.id}</td>
+                    </tr>
+                    <tr>
+                        <th>Recipient</th>
+                        <td class="text-mono text-sm">{message.recipientId}</td>
+                    </tr>
+                    <tr>
+                        <th>Channel</th>
+                        <td>{message.channelLabel}</td>
+                    </tr>
+                    <tr>
+                        <th>Direction</th>
+                        <td>{message.direction}</td>
+                    </tr>
+                    <tr>
+                        <th>Status</th>
+                        <td>{message.statusLabel}</td>
+                    </tr>
+                    <tr>
+                        <th>Created</th>
+                        <td>{message.createdAt}</td>
+                    </tr>
+                    <tr>
+                        <th>Sent</th>
+                        <td>{message.sentAt ?: '—'}</td>
+                    </tr>
+                    <tr>
+                        <th>Delivered</th>
+                        <td>{message.deliveredAt ?: '—'}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Right column: Delivery timeline ──────────────────────────────── -->
+    <div class="detail-sidebar">
+        <div class="card">
+            <div class="card-header">
+                <h3>Delivery Timeline</h3>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    <div class="timeline-item {#if message.status.name == 'PENDING' || message.status.name == 'QUEUED' || message.status.name == 'SENT' || message.status.name == 'DELIVERED' || message.status.name == 'FAILED' || message.status.name == 'BOUNCED'}completed{/if}">
+                        <div class="timeline-dot"></div>
+                        <div class="timeline-content">
+                            <strong>Pending</strong>
+                            <span class="text-muted text-sm">Message created</span>
+                        </div>
+                    </div>
+                    <div class="timeline-item {#if message.status.name == 'QUEUED' || message.status.name == 'SENT' || message.status.name == 'DELIVERED' || message.status.name == 'FAILED' || message.status.name == 'BOUNCED'}completed{/if}">
+                        <div class="timeline-dot"></div>
+                        <div class="timeline-content">
+                            <strong>Queued</strong>
+                            <span class="text-muted text-sm">Queued for delivery</span>
+                        </div>
+                    </div>
+                    <div class="timeline-item {#if message.status.name == 'SENT' || message.status.name == 'DELIVERED' || message.status.name == 'FAILED' || message.status.name == 'BOUNCED'}completed{/if}">
+                        <div class="timeline-dot"></div>
+                        <div class="timeline-content">
+                            <strong>Sent</strong>
+                            {#if message.sentAt}
+                            <span class="text-muted text-sm">{message.sentAt}</span>
+                            {#else}
+                            <span class="text-muted text-sm">Dispatched to provider</span>
+                            {/if}
+                        </div>
+                    </div>
+                    {#if message.status.name == 'DELIVERED'}
+                    <div class="timeline-item completed">
+                        <div class="timeline-dot"></div>
+                        <div class="timeline-content">
+                            <strong>Delivered</strong>
+                            {#if message.deliveredAt}
+                            <span class="text-muted text-sm">{message.deliveredAt}</span>
+                            {/if}
+                        </div>
+                    </div>
+                    {#else if message.status.name == 'FAILED' || message.status.name == 'BOUNCED'}
+                    <div class="timeline-item failed">
+                        <div class="timeline-dot"></div>
+                        <div class="timeline-content">
+                            <strong>{message.statusLabel}</strong>
+                            <span class="text-muted text-sm">Delivery unsuccessful</span>
+                        </div>
+                    </div>
+                    {/if}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{/if}
+{/content}
+{/include}

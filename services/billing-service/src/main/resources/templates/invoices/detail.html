@@ -1,0 +1,186 @@
+{#include layout.html}
+{#title}Invoice {invoice.invoiceNumber} — Billing{/title}
+{#topbar-title}Invoice {invoice.invoiceNumber}{/topbar-title}
+{#topbar-actions}
+    <a href="/billing/invoices" class="btn btn-ghost btn-sm">← Back to Invoices</a>
+{/topbar-actions}
+{#activePage}invoices{/activePage}
+
+{#content}
+<div style="display: grid; grid-template-columns: 1fr 320px; gap: 24px;">
+    <!-- Left: Invoice header + line items -->
+    <div>
+        <!-- Invoice header card -->
+        <div class="card" style="margin-bottom: 18px;">
+            <div class="card-header">
+                <span class="card-title">Invoice Details</span>
+                <span class="badge {#if invoice.status.name == 'DRAFT'}badge-lead
+                              {#else if invoice.status.name == 'ISSUED'}badge-qualified
+                              {#else if invoice.status.name == 'PAID'}badge-customer
+                              {#else if invoice.status.name == 'OVERDUE'}badge-churned
+                              {#else if invoice.status.name == 'VOID'}badge-churned
+                              {/if}" style="margin-left: auto;">
+                    {invoice.statusLabel}
+                </span>
+            </div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Invoice Number</label>
+                        <div style="margin-top: 4px; font-size: 16px; font-weight: 600;">{invoice.invoiceNumber}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Customer</label>
+                        <div style="margin-top: 4px; font-size: 14px; font-family: monospace;">{invoice.customerId}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Issue Date</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{invoice.issueDate}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Due Date</label>
+                        <div style="margin-top: 4px; font-size: 14px; {#if invoice.isOverdue}color: var(--danger); font-weight: 600;{/if}">
+                            {#if invoice.dueDate}
+                            {invoice.dueDate}
+                            {#if invoice.isOverdue}
+                            <span style="font-size: 11px; margin-left: 6px;">⚠ OVERDUE</span>
+                            {/if}
+                            {#else}—{/if}
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Currency</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{invoice.currency}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Created</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{invoice.createdAt}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line items card -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Line Items</span>
+                <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+                    {invoice.lineItems.size} items
+                </span>
+            </div>
+            <div class="card-body" style="padding: 0;">
+                {#if invoice.lineItems.size > 0}
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th style="text-align: right;">Qty</th>
+                            <th style="text-align: right;">Unit Price</th>
+                            <th style="text-align: right;">Tax</th>
+                            <th style="text-align: right;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#for item in invoice.lineItems}
+                        <tr>
+                            <td>{item.description}</td>
+                            <td style="text-align: right; font-family: monospace;">{item.quantity}</td>
+                            <td style="text-align: right; font-family: monospace;">{item.unitPrice}</td>
+                            <td style="text-align: right; font-family: monospace; color: var(--text-muted);">{item.taxRate}%</td>
+                            <td style="text-align: right; font-weight: 600; font-family: monospace;">{item.total}</td>
+                        </tr>
+                        {/for}
+                    </tbody>
+                </table>
+                {#else}
+                <div class="empty" style="padding: 32px;">
+                    <div class="empty-text">No line items</div>
+                </div>
+                {/if}
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Summary + actions -->
+    <div>
+        <!-- Summary card -->
+        <div class="card" style="margin-bottom: 18px;">
+            <div class="card-header">
+                <span class="card-title">Summary</span>
+            </div>
+            <div class="card-body">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                        <span style="font-size: 13px; color: var(--text-muted);">Subtotal</span>
+                        <span style="font-size: 14px; font-weight: 500; font-family: monospace;">{invoice.subtotal}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                        <span style="font-size: 13px; color: var(--text-muted);">Tax</span>
+                        <span style="font-size: 14px; font-weight: 500; font-family: monospace;">{invoice.totalTax}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0;">
+                        <span style="font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Total</span>
+                        <span style="font-size: 20px; font-weight: 700; font-family: monospace;">{invoice.currency} {invoice.total}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions card -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Actions</span>
+            </div>
+            <div class="card-body">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <!-- Issue (DRAFT only) -->
+                    {#if invoice.status.name == 'DRAFT'}
+                    <button class="btn btn-primary"
+                            style="width: 100%; justify-content: center;"
+                            hx-post="/api/v1/invoices/{invoice.id}/issue"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML">
+                        Issue Invoice
+                    </button>
+                    {/if}
+
+                    <!-- Mark Paid (ISSUED or OVERDUE) -->
+                    {#if invoice.status.name == 'ISSUED' || invoice.status.name == 'OVERDUE'}
+                    <button class="btn btn-ghost"
+                            style="width: 100%; justify-content: center; border-color: var(--success); color: var(--success);"
+                            hx-post="/api/v1/invoices/{invoice.id}/mark-paid"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML">
+                        Mark Paid
+                    </button>
+                    {/if}
+
+                    <!-- Void (not PAID or VOID) -->
+                    {#if invoice.status.name != 'PAID' && invoice.status.name != 'VOID'}
+                    <button class="btn btn-ghost"
+                            style="width: 100%; justify-content: center; border-color: var(--danger); color: var(--danger);"
+                            hx-post="/api/v1/invoices/{invoice.id}/void"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML"
+                            hx-confirm="Void this invoice? This cannot be undone.">
+                        Void Invoice
+                    </button>
+                    {/if}
+
+                    <!-- Mark Overdue (ISSUED only) -->
+                    {#if invoice.status.name == 'ISSUED'}
+                    <button class="btn btn-ghost"
+                            style="width: 100%; justify-content: center; border-color: var(--warning); color: var(--warning);"
+                            hx-post="/api/v1/invoices/{invoice.id}/mark-overdue"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML">
+                        Mark Overdue
+                    </button>
+                    {/if}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

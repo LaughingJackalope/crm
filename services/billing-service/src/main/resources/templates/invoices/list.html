@@ -1,0 +1,121 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}Invoices — Billing{/title}
+{#topbar-title}Invoices{/topbar-title}
+{#activePage}invoices{/activePage}
+
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">All Invoices</span>
+        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+            {invoices.size} total
+        </span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <!-- Search & filters -->
+        <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
+            <input type="text"
+                   class="search-input"
+                   placeholder="Search invoices…"
+                   name="q"
+                   value="{q ?: ''}"
+                   hx-get="/billing/invoices"
+                   hx-target="#invoice-table-container"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-indicator=".search-spinner">
+            <select class="filter-select"
+                    name="status"
+                    hx-get="/billing/invoices"
+                    hx-target="#invoice-table-container"
+                    hx-trigger="change">
+                {#for status in statuses}
+                <option value="{status.name}" {#if status.name == selectedStatus}selected{/if}>
+                    {status.label}
+                </option>
+                {/for}
+            </select>
+            <span class="search-spinner htmx-indicator"><span class="spinner"></span></span>
+        </div>
+
+        <!-- Table container (htmx swap target) -->
+        <div id="invoice-table-container">
+            {#if invoices.size > 0}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Invoice #</th>
+                        <th>Status</th>
+                        <th>Customer</th>
+                        <th>Total</th>
+                        <th>Currency</th>
+                        <th>Issue Date</th>
+                        <th>Due Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {#for invoice in invoices}
+                    <tr style="cursor: pointer; {#if invoice.isOverdue}background: rgba(225, 85, 85, 0.06);{/if}"
+                        onclick="window.location.href='/billing/invoices/{invoice.id}'">
+                        <td>
+                            <div style="font-weight: 500;">{invoice.invoiceNumber}</div>
+                        </td>
+                        <td>
+                            <span class="badge {#if invoice.status.name == 'DRAFT'}badge-lead
+                                          {#else if invoice.status.name == 'ISSUED'}badge-qualified
+                                          {#else if invoice.status.name == 'PAID'}badge-customer
+                                          {#else if invoice.status.name == 'OVERDUE'}badge-churned
+                                          {#else if invoice.status.name == 'VOID'}badge-churned
+                                          {/if}">
+                                {invoice.statusLabel}
+                            </span>
+                        </td>
+                        <td style="color: var(--text-muted); font-family: monospace; font-size: 12px;">
+                            {invoice.customerId}
+                        </td>
+                        <td style="font-weight: 600;">{invoice.total}</td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{invoice.currency}</td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{invoice.issueDate}</td>
+                        <td style="font-size: 12px; {#if invoice.isOverdue}color: var(--danger); font-weight: 600;{#else}color: var(--text-muted);{/if}">
+                            {#if invoice.dueDate}{invoice.dueDate}{#else}—{/if}
+                            {#if invoice.isOverdue}
+                            <span style="font-size: 10px; margin-left: 4px;">⚠ OVERDUE</span>
+                            {/if}
+                        </td>
+                    </tr>
+                    {/for}
+                </tbody>
+            </table>
+
+            <!-- Pagination -->
+            {#if totalPages > 1}
+            <div class="pagination" style="padding: 14px 18px;">
+                <a class="page-btn {#if page == 1}disabled{/if}"
+                   href="/billing/invoices?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-get="/billing/invoices?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-target="#invoice-table-container">←</a>
+                {#for p in pages}
+                <a class="page-btn {#if p == page}active{/if}"
+                   href="/billing/invoices?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-get="/billing/invoices?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-target="#invoice-table-container">{p}</a>
+                {/for}
+                <a class="page-btn {#if page == totalPages}disabled{/if}"
+                   href="/billing/invoices?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-get="/billing/invoices?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;status={selectedStatus ?: ''}"
+                   hx-target="#invoice-table-container">→</a>
+            </div>
+            {/if}
+
+            {#else}
+            <div class="empty">
+                <div class="empty-icon">🧾</div>
+                <div class="empty-text">No invoices found</div>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

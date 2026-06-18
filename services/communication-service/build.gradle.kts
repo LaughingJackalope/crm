@@ -7,12 +7,15 @@ dependencies {
     implementation(project(":libs:contracts:open-api"))
     implementation(project(":libs:contracts:async-api"))
     implementation(project(":libs:common"))
+    implementation(project(":libs:common-ui"))
 
     implementation(libs.quarkus.hibernate.orm.panache.kotlin)
     implementation(libs.quarkus.jdbc.postgresql)
     implementation(libs.quarkus.messaging.kafka)
     implementation("io.quarkus:quarkus-scheduler")
     implementation("io.quarkus:quarkus-qute")
+    implementation(libs.quarkus.rest)
+    implementation(libs.quarkus.rest.jackson)
 
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)

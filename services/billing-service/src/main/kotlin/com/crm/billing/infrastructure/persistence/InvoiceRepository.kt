@@ -59,4 +59,8 @@ class InvoiceRepository {
 
     fun existsByOpportunityId(opportunityId: String): Boolean =
         InvoiceEntity.find("opportunityId", opportunityId).firstResult() != null
+
+    fun findAll(): List<Invoice> =
+        InvoiceEntity.listAll().map { it.toDomain() }
+
 }

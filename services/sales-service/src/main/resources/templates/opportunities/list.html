@@ -1,0 +1,111 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}Opportunities — Sales{/title}
+{#topbar-title}Opportunities{/topbar-title}
+{#topbar-actions}
+    <a href="/sales/opportunities/new" class="btn btn-primary btn-sm">+ New Opportunity</a>
+{/topbar-actions}
+{#activePage}opportunities{/activePage}
+
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">All Opportunities</span>
+        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+            {totalItems} total
+        </span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <!-- Search & filters -->
+        <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
+            <input type="text"
+                   class="search-input"
+                   placeholder="Search opportunities…"
+                   name="q"
+                   value="{q ?: ''}"
+                   hx-get="/sales/opportunities"
+                   hx-target="#table-container"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-indicator=".search-spinner">
+            <select class="filter-select"
+                    name="stage"
+                    hx-get="/sales/opportunities"
+                    hx-target="#table-container"
+                    hx-trigger="change">
+                <option value="">All stages</option>
+                <option value="PROSPECTING" {#if selectedStage == 'PROSPECTING'}selected{/if}>Prospecting</option>
+                <option value="DISCOVERY" {#if selectedStage == 'DISCOVERY'}selected{/if}>Discovery</option>
+                <option value="PROPOSAL" {#if selectedStage == 'PROPOSAL'}selected{/if}>Proposal</option>
+                <option value="NEGOTIATION" {#if selectedStage == 'NEGOTIATION'}selected{/if}>Negotiation</option>
+                <option value="CLOSED_WON" {#if selectedStage == 'CLOSED_WON'}selected{/if}>Closed Won</option>
+                <option value="CLOSED_LOST" {#if selectedStage == 'CLOSED_LOST'}selected{/if}>Closed Lost</option>
+            </select>
+            <span class="search-spinner htmx-indicator"><span class="spinner"></span></span>
+        </div>
+
+        <!-- Table container (htmx swap target) -->
+        <div id="table-container">
+            {#if opportunities.size > 0}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Stage</th>
+                        <th>Amount</th>
+                        <th>Probability</th>
+                        <th>Expected Close</th>
+                        <th>Owner</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {#for opportunity in opportunities}
+                    <tr style="cursor: pointer;" onclick="window.location.href='/sales/opportunities/{opportunity.id}'">
+                        <td>
+                            <div style="font-weight: 500;">{opportunity.name}</div>
+                        </td>
+                        <td>
+                            <span class="badge badge-{opportunity.stage.name.toLowerCase()}">
+                                {opportunity.stageLabel}
+                            </span>
+                        </td>
+                        <td>{opportunity.amount}</td>
+                        <td>{opportunity.probability}%</td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{opportunity.expectedCloseDate ?: '—'}</td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{opportunity.ownerId ?: '—'}</td>
+                    </tr>
+                    {/for}
+                </tbody>
+            </table>
+
+            <!-- Pagination -->
+            {#if totalPages > 1}
+            <div class="pagination" style="padding: 14px 18px;">
+                <a class="page-btn {#if page == 1}disabled{/if}"
+                   href="/sales/opportunities?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;stage={selectedStage ?: ''}"
+                   hx-get="/sales/opportunities?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;stage={selectedStage ?: ''}"
+                   hx-target="#table-container">←</a>
+                {#for p in pages}
+                <a class="page-btn {#if p == page}active{/if}"
+                   href="/sales/opportunities?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;stage={selectedStage ?: ''}"
+                   hx-get="/sales/opportunities?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;stage={selectedStage ?: ''}"
+                   hx-target="#table-container">{p}</a>
+                {/for}
+                <a class="page-btn {#if page == totalPages}disabled{/if}"
+                   href="/sales/opportunities?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;stage={selectedStage ?: ''}"
+                   hx-get="/sales/opportunities?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;stage={selectedStage ?: ''}"
+                   hx-target="#table-container">→</a>
+            </div>
+            {/if}
+
+            {#else}
+            <div class="empty">
+                <div class="empty-icon">📊</div>
+                <div class="empty-text">No opportunities found</div>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

@@ -24,6 +24,7 @@ dependencies {
 
     // ── Shared cross-cutting concerns ─────────────────────────────────────
     implementation(project(":libs:common"))
+    implementation(project(":libs:common-ui"))
 
     // ── Quarkus extensions ────────────────────────────────────────────────
     implementation(libs.quarkus.hibernate.orm.panache.kotlin)

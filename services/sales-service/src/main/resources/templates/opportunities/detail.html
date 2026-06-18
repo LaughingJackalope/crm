@@ -1,0 +1,131 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}{opportunity.name} — Sales{/title}
+{#topbar-title}{opportunity.name}{/topbar-title}
+{#topbar-actions}
+    <a href="/sales/opportunities" class="btn btn-ghost btn-sm">← Back to Opportunities</a>
+    <button class="btn btn-primary btn-sm"
+            hx-post="/api/v1/opportunities/{opportunity.id}/advance-stage"
+            hx-target="#flash-region"
+            hx-swap="innerHTML"
+            {#if opportunity.isClosed}disabled{/if}>
+        Advance Stage
+    </button>
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/api/v1/opportunities/{opportunity.id}/close"
+            hx-confirm="Close this opportunity as won?"
+            hx-target="#flash-region"
+            hx-swap="innerHTML"
+            {#if opportunity.isClosed}disabled{/if}>
+        Close Won
+    </button>
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/api/v1/opportunities/{opportunity.id}/close"
+            hx-confirm="Close this opportunity as lost?"
+            hx-target="#flash-region"
+            hx-swap="innerHTML"
+            {#if opportunity.isClosed}disabled{/if}>
+        Close Lost
+    </button>
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/api/v1/opportunities/{opportunity.id}/reassign"
+            hx-target="#flash-region"
+            hx-swap="innerHTML"
+            {#if opportunity.isClosed}disabled{/if}>
+        Reassign
+    </button>
+{/topbar-actions}
+{#activePage}opportunities{/activePage}
+
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div style="display: grid; grid-template-columns: 1fr 320px; gap: 24px;">
+    <!-- Main detail -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Opportunity Details</span>
+            <span class="badge badge-{opportunity.stage.name.toLowerCase()}" style="margin-left: auto;">
+                {opportunity.stageLabel}
+            </span>
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Name</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.name}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Stage</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.stageLabel}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Amount</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.amount}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Probability</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.probability}%</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Expected Close</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.expectedCloseDate ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Owner</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.ownerId ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Created</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.createdAt}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Customer</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{opportunity.customerId}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar: Actions -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Actions</span>
+        </div>
+        <div class="card-body">
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button class="btn btn-primary"
+                        hx-post="/api/v1/opportunities/{opportunity.id}/advance-stage"
+                        hx-target="#flash-region"
+                        hx-swap="innerHTML"
+                        {#if opportunity.isClosed}disabled{/if}>
+                    Advance Stage
+                </button>
+                <button class="btn btn-ghost"
+                        hx-post="/api/v1/opportunities/{opportunity.id}/close"
+                        hx-confirm="Close this opportunity as won?"
+                        hx-target="#flash-region"
+                        hx-swap="innerHTML"
+                        {#if opportunity.isClosed}disabled{/if}>
+                    Close Won
+                </button>
+                <button class="btn btn-ghost"
+                        hx-post="/api/v1/opportunities/{opportunity.id}/close"
+                        hx-confirm="Close this opportunity as lost?"
+                        hx-target="#flash-region"
+                        hx-swap="innerHTML"
+                        {#if opportunity.isClosed}disabled{/if}>
+                    Close Lost
+                </button>
+                <button class="btn btn-ghost"
+                        hx-post="/api/v1/opportunities/{opportunity.id}/reassign"
+                        hx-target="#flash-region"
+                        hx-swap="innerHTML"
+                        {#if opportunity.isClosed}disabled{/if}>
+                    Reassign Owner
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

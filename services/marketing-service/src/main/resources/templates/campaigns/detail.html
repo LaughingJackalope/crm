@@ -1,0 +1,131 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}{campaign.name} — Marketing{/title}
+{#topbar-title}{campaign.name}{/topbar-title}
+{#topbar-actions}
+    <a href="/marketing/campaigns" class="btn btn-ghost btn-sm">← Back to Campaigns</a>
+{/topbar-actions}
+{#activePage}campaigns{/activePage}
+
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div class="two-col">
+    <!-- Main detail -->
+    <div class="detail-main">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Campaign Details</span>
+                <span class="badge badge-{campaign.status.name.toLowerCase()}" style="margin-left: auto;">
+                    {campaign.statusLabel}
+                </span>
+            </div>
+            <div class="card-body">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Name</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.name}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Source</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.source}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Budget</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.budget}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">ROAS</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.roas}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Start Date</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.startDate ?: '—'}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">End Date</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.endDate ?: '—'}</div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Created</label>
+                        <div style="margin-top: 4px; font-size: 14px;">{campaign.createdAt}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar: Metrics & Actions -->
+    <div class="detail-sidebar">
+        <!-- Metrics -->
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+                <span class="card-title">Performance</span>
+            </div>
+            <div class="card-body">
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Sent</div>
+                        <div class="stat-value">{campaign.sent}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Opened</div>
+                        <div class="stat-value">{campaign.opened}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Clicked</div>
+                        <div class="stat-value">{campaign.clicked}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Conversions</div>
+                        <div class="stat-value">{campaign.conversions}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">ROAS</div>
+                        <div class="stat-value" style="font-size: 15px;">{campaign.roas}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">CPA</div>
+                        <div class="stat-value" style="font-size: 15px;">{campaign.cpa}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Actions</span>
+            </div>
+            <div class="card-body">
+                <div class="action-panel">
+                    {#if campaign.status.name == 'DRAFT'}
+                    <button class="btn btn-primary"
+                            hx-post="/api/v1/campaigns/{campaign.id}/launch"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML">
+                        🚀 Launch Campaign
+                    </button>
+                    {/if}
+                    {#if campaign.status.name == 'ACTIVE'}
+                    <button class="btn btn-ghost"
+                            hx-post="/api/v1/campaigns/{campaign.id}/pause"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML">
+                        ⏸ Pause Campaign
+                    </button>
+                    {/if}
+                    {#if campaign.status.name == 'ACTIVE' || campaign.status.name == 'PAUSED'}
+                    <button class="btn btn-ghost"
+                            hx-post="/api/v1/campaigns/{campaign.id}/complete"
+                            hx-target="#flash-region"
+                            hx-swap="innerHTML">
+                        ✓ Complete Campaign
+                    </button>
+                    {/if}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{/content}
+{/include}
