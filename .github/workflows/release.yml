@@ -1,0 +1,39 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Release — Automated GitHub Release on version tag push
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Trigger: push of a tag matching `v*` (e.g. v0.0.1, v1.2.0).
+# Does NOT run on standard branch pushes.
+#
+# Uses softprops/action-gh-release to create a GitHub Release with
+# auto-generated release notes from merged PRs.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Release ${{ github.ref_name }}"
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
