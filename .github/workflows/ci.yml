@@ -255,10 +255,16 @@ jobs:
       - name: Resolve build version
         id: version
         shell: bash
-        run: |
-          set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] \
+          # ── Version Tag Detection ───────────────────────────────────────
+          # If triggered by a tag push matching v* (e.g. v0.0.1), strip the
+          # 'v' prefix and use the bare SemVer as the build version.
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VER="${{ github.ref_name }}"
+            # Strip leading 'v'
+            VER="${VER#v}"
+            echo "::notice::Release tag detected: ${{ github.ref_name }} → version ${VER}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]] \
              && [[ -n "${{ github.event.inputs.release_version }}" ]]; then
             # Explicit SemVer from manual dispatch input.
             VER="${{ github.event.inputs.release_version }}"
