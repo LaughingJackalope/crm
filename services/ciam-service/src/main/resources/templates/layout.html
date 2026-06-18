@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{#insert title}CRM — CIAM{/insert}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --sidebar-w: 220px;
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface-hover: #242836;
+            --border: #2a2e3d;
+            --text: #e2e4ed;
+            --text-muted: #8b8fa3;
+            --accent: #5b7ff5;
+            --accent-hover: #4a6ee4;
+            --danger: #e55;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --radius: 8px;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+
+        /* ── Sidebar ──────────────────────────────────────────────────────── */
+        .sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; }
+        .sidebar-brand { padding: 20px 16px 12px; font-size: 13px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+        .sidebar-nav { flex: 1; padding: 8px; }
+        .nav-section { margin-bottom: 16px; }
+        .nav-section-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); padding: 8px 12px 4px; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13px; cursor: pointer; transition: background 0.15s; }
+        .nav-item:hover { background: var(--surface-hover); }
+        .nav-item.active { background: var(--accent); color: #fff; }
+        .nav-icon { width: 16px; text-align: center; font-size: 14px; }
+
+        /* ── Main content ─────────────────────────────────────────────────── */
+        .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; }
+        .topbar { height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; }
+        .topbar-title { font-size: 15px; font-weight: 600; }
+        .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+        .content { flex: 1; padding: 24px; }
+
+        /* ── Buttons ───────────────────────────────────────────────────────── */
+        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; border: none; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+        .btn-ghost:hover { background: var(--surface-hover); color: var(--text); }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+        /* ── Cards ─────────────────────────────────────────────────────────── */
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+        .card-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+        .card-title { font-size: 14px; font-weight: 600; }
+        .card-body { padding: 18px; }
+
+        /* ── Tables ────────────────────────────────────────────────────────── */
+        .table { width: 100%; border-collapse: collapse; }
+        .table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); padding: 10px 14px; border-bottom: 1px solid var(--border); }
+        .table td { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .table tr:last-child td { border-bottom: none; }
+        .table tr:hover td { background: var(--surface-hover); }
+
+        /* ── Badges ────────────────────────────────────────────────────────── */
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-lead { background: #2a2e3d; color: var(--text-muted); }
+        .badge-qualified { background: #1a3a5c; color: #5b9bd5; }
+        .badge-opportunity { background: #3a2a1a; color: #d4a054; }
+        .badge-customer { background: #1a3a2a; color: #5cb85c; }
+        .badge-advocate { background: #2a1a3a; color: #a05bd4; }
+        .badge-churned { background: #3a1a1a; color: #d45b5b; }
+
+        /* ── Search / filters ──────────────────────────────────────────────── */
+        .search-input { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; font-size: 13px; color: var(--text); width: 240px; outline: none; }
+        .search-input:focus { border-color: var(--accent); }
+        .filter-select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; font-size: 13px; color: var(--text); outline: none; }
+
+        /* ── Pagination ────────────────────────────────────────────────────── */
+        .pagination { display: flex; align-items: center; gap: 4px; margin-top: 16px; justify-content: flex-end; }
+        .page-btn { padding: 5px 10px; border-radius: 4px; font-size: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; text-decoration: none; }
+        .page-btn:hover { background: var(--surface-hover); }
+        .page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .page-btn.disabled { opacity: 0.4; pointer-events: none; }
+
+        /* ── htmx loading ──────────────────────────────────────────────────── */
+        .htmx-request .htmx-indicator { display: inline; }
+        .htmx-indicator { display: none; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Empty state ───────────────────────────────────────────────────── */
+        .empty { text-align: center; padding: 48px; color: var(--text-muted); }
+        .empty-icon { font-size: 32px; margin-bottom: 12px; }
+        .empty-text { font-size: 14px; }
+
+        /* ── Flash messages ────────────────────────────────────────────────── */
+        .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+        .flash-success { background: #1a3a2a; color: #5cb85c; border: 1px solid #2a4a3a; }
+        .flash-error { background: #3a1a1a; color: #d45b5b; border: 1px solid #4a2a2a; }
+    </style>
+</head>
+<body>
+    <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
+    <nav class="sidebar">
+        <div class="sidebar-brand">CRM</div>
+        <div class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">CIAM</div>
+                <a href="/ciam/contacts" class="nav-item {#if activePage == 'contacts'}active{/if}">
+                    <span class="nav-icon">👤</span> Contacts
+                </a>
+                <a href="/ciam/accounts" class="nav-item {#if activePage == 'accounts'}active{/if}">
+                    <span class="nav-icon">🏢</span> Accounts
+                </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Sales</div>
+                <a href="/sales/opportunities" class="nav-item">
+                    <span class="nav-icon">📊</span> Pipeline
+                </a>
+                <a href="/sales/quotes" class="nav-item">
+                    <span class="nav-icon">📝</span> Quotes
+                </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Support</div>
+                <a href="/support/tickets" class="nav-item">
+                    <span class="nav-icon">🎫</span> Tickets
+                </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Marketing</div>
+                <a href="/marketing/campaigns" class="nav-item">
+                    <span class="nav-icon">📣</span> Campaigns
+                </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Billing</div>
+                <a href="/billing/subscriptions" class="nav-item">
+                    <span class="nav-icon">💳</span> Subscriptions
+                </a>
+                <a href="/billing/invoices" class="nav-item">
+                    <span class="nav-icon">🧾</span> Invoices
+                </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Comms</div>
+                <a href="/comms/messages" class="nav-item">
+                    <span class="nav-icon">✉️</span> Messages
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ── Main ─────────────────────────────────────────────────────────── -->
+    <main class="main">
+        <header class="topbar">
+            <span class="topbar-title">{#insert topbar-title}Contacts{/insert}</span>
+            <div class="topbar-actions">
+                {#insert topbar-actions}{/insert}
+            </div>
+        </header>
+        <div class="content">
+            <!-- Flash messages region (htmx swap target) -->
+            <div id="flash-region">
+                {#insert flash}{/insert}
+            </div>
+            <!-- Page content -->
+            {#insert content}Page content goes here{/insert}
+        </div>
+    </main>
+</body>
+</html>

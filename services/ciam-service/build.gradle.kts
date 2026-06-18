@@ -33,6 +33,10 @@ dependencies {
     // ── Scheduling (outbox relay) ──────────────────────────────────────────
     implementation("io.quarkus:quarkus-scheduler")
 
+    // ── Qute templating ────────────────────────────────────────────────────
+    implementation("io.quarkus:quarkus-rest-qute")
+    implementation("io.quarkus:quarkus-qute")
+
     // ── OIDC / IAM ─────────────────────────────────────────────────────────
 
     // ── Testing ───────────────────────────────────────────────────────────

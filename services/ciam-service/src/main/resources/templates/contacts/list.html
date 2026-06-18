@@ -1,0 +1,111 @@
+{#include layout.html}
+{! ── Page metadata _________________________________________________________ !}
+{#title}Contacts — CIAM{/title}
+{#topbar-title}Contacts{/topbar-title}
+{#topbar-actions}
+    <a href="/ciam/contacts/new" class="btn btn-primary btn-sm">+ New Contact</a>
+{/topbar-actions}
+{#activePage}contacts{/activePage}
+
+{! ── Content _______________________________________________________________ !}
+{#content}
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">All Contacts</span>
+        <span style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+            {contacts.size} total
+        </span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <!-- Search & filters -->
+        <div style="padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
+            <input type="text"
+                   class="search-input"
+                   placeholder="Search contacts…"
+                   name="q"
+                   value="{q ?: ''}"
+                   hx-get="/ciam/contacts"
+                   hx-target="#contact-table-container"
+                   hx-trigger="input changed delay:300ms, search"
+                   hx-indicator=".search-spinner">
+            <select class="filter-select"
+                    name="lifecycleStage"
+                    hx-get="/ciam/contacts"
+                    hx-target="#contact-table-container"
+                    hx-trigger="change">
+                <option value="">All stages</option>
+                {#for stage in stages}
+                <option value="{stage.name}" {#if stage.name == selectedStage}selected{/if}>
+                    {stage.label}
+                </option>
+                {/for}
+            </select>
+            <span class="search-spinner htmx-indicator"><span class="spinner"></span></span>
+        </div>
+
+        <!-- Table container (htmx swap target) -->
+        <div id="contact-table-container">
+            {#if contacts.size > 0}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Stage</th>
+                        <th>Source</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {#for contact in contacts}
+                    <tr style="cursor: pointer;" onclick="window.location.href='/ciam/contacts/{contact.contactId}'">
+                        <td>
+                            <div style="font-weight: 500;">{contact.displayName}</div>
+                            {#if contact.title}
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">{contact.title}</div>
+                            {/if}
+                        </td>
+                        <td>{contact.email?.value ?: '—'}</td>
+                        <td>
+                            <span class="badge badge-{contact.lifecycleStage.name.toLowerCase()}">
+                                {contact.lifecycleStage.label}
+                            </span>
+                        </td>
+                        <td style="color: var(--text-muted);">{contact.source ?: '—'}</td>
+                        <td style="color: var(--text-muted); font-size: 12px;">{contact.createdAt}</td>
+                    </tr>
+                    {/for}
+                </tbody>
+            </table>
+
+            <!-- Pagination -->
+            {#if totalPages > 1}
+            <div class="pagination" style="padding: 14px 18px;">
+                <a class="page-btn {#if page == 1}disabled{/if}"
+                   href="/ciam/contacts?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;lifecycleStage={selectedStage ?: ''}"
+                   hx-get="/ciam/contacts?page={page - 1}&amp;size={size}&amp;q={q ?: ''}&amp;lifecycleStage={selectedStage ?: ''}"
+                   hx-target="#contact-table-container">←</a>
+                {#for p in pages}
+                <a class="page-btn {#if p == page}active{/if}"
+                   href="/ciam/contacts?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;lifecycleStage={selectedStage ?: ''}"
+                   hx-get="/ciam/contacts?page={p}&amp;size={size}&amp;q={q ?: ''}&amp;lifecycleStage={selectedStage ?: ''}"
+                   hx-target="#contact-table-container">{p}</a>
+                {/for}
+                <a class="page-btn {#if page == totalPages}disabled{/if}"
+                   href="/ciam/contacts?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;lifecycleStage={selectedStage ?: ''}"
+                   hx-get="/ciam/contacts?page={page + 1}&amp;size={size}&amp;q={q ?: ''}&amp;lifecycleStage={selectedStage ?: ''}"
+                   hx-target="#contact-table-container">→</a>
+            </div>
+            {/if}
+
+            {#else}
+            <div class="empty">
+                <div class="empty-icon">👤</div>
+                <div class="empty-text">No contacts found</div>
+            </div>
+            {/if}
+        </div>
+    </div>
+</div>
+{/content}
+{/include}

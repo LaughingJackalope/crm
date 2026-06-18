@@ -1,0 +1,92 @@
+{#include layout.html}
+{#title}{contact.displayName} — CIAM{/title}
+{#topbar-title}{contact.displayName}{/topbar-title}
+{#topbar-actions}
+    <a href="/ciam/contacts" class="btn btn-ghost btn-sm">← Back to Contacts</a>
+    <button class="btn btn-primary btn-sm"
+            hx-post="/ciam/api/v1/contacts/{contact.contactId}/qualify"
+            hx-target="#flash-region"
+            hx-swap="innerHTML"
+            {#if contact.lifecycleStage.name != 'LEAD'}disabled{/if}>
+        Qualify Lead
+    </button>
+    <button class="btn btn-ghost btn-sm"
+            hx-delete="/ciam/api/v1/contacts/{contact.contactId}"
+            hx-confirm="Deactivate this contact?"
+            hx-target="#flash-region"
+            hx-swap="innerHTML">
+        Deactivate
+    </button>
+{/topbar-actions}
+{#activePage}contacts{/activePage}
+
+{#content}
+<div style="display: grid; grid-template-columns: 1fr 320px; gap: 24px;">
+    <!-- Main detail -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Contact Details</span>
+            <span class="badge badge-{contact.lifecycleStage.name.toLowerCase()}" style="margin-left: auto;">
+                {contact.lifecycleStage.label}
+            </span>
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Full Name</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.displayName}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Title</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.title ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Email</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.email?.value ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Phone</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.phone ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Source</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.source ?: '—'}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Status</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{#if contact.isActive}Active{#else}Inactive{/if}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Created</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.createdAt}</div>
+                </div>
+                <div>
+                    <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Updated</label>
+                    <div style="margin-top: 4px; font-size: 14px;">{contact.updatedAt}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar: Lifecycle -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Lifecycle</span>
+        </div>
+        <div class="card-body">
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                {#for stage in stages}
+                <div style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; {#if stage.name == contact.lifecycleStage.name}background: var(--surface-hover);{/if}">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: {#if stage.name == contact.lifecycleStage.name}var(--accent){#else}var(--border){/if};"></span>
+                    <span style="font-size: 13px; {#if stage.name == contact.lifecycleStage.name}font-weight: 600;{/if}">{stage.label}</span>
+                    {#if stage.name == contact.lifecycleStage.name}
+                    <span style="margin-left: auto; font-size: 10px; color: var(--text-muted);">current</span>
+                    {/if}
+                </div>
+                {/for}
+            </div>
+        </div>
+    </div>
+</div>
+{/content}
+{/include}
