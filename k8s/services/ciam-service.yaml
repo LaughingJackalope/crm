@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: ciam-service
-          image: ghcr.io/zoo-company/ciam-service:latest
+          image: ghcr.io/laughingjackalope/ciam-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081

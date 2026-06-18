@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: communication-service
-          image: ghcr.io/zoo-company/communication-service:latest
+          image: ghcr.io/laughingjackalope/communication-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8086

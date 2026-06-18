@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: billing-service
-          image: ghcr.io/zoo-company/billing-service:latest
+          image: ghcr.io/laughingjackalope/billing-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8083

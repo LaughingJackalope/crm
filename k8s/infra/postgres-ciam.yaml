@@ -14,6 +14,18 @@ spec:
       labels:
         app: postgres-ciam
     spec:
+      initContainers:
+        - name: init-schema
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h localhost -U crm -d crm; do sleep 1; done
+              psql -U crm -d crm -c 'CREATE SCHEMA IF NOT EXISTS ciam; GRANT ALL PRIVILEGES ON SCHEMA ciam TO crm;'
+          env:
+            - name: PGPASSWORD
+              value: crm
       containers:
         - name: postgres
           image: postgres:17-alpine

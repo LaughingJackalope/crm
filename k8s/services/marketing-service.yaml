@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: marketing-service
-          image: ghcr.io/zoo-company/marketing-service:latest
+          image: ghcr.io/laughingjackalope/marketing-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8085

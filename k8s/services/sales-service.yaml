@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: sales-service
-          image: ghcr.io/zoo-company/sales-service:latest
+          image: ghcr.io/laughingjackalope/sales-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8082
