@@ -46,3 +46,14 @@ dependencies {
     testImplementation("io.quarkus:quarkus-jsonb")
     testImplementation("io.rest-assured:rest-assured")
 }
+
+// ── Integration test tagging ──────────────────────────────────────────────────
+// By default, exclude @Tag("integration") tests from the `test` task.
+// Opt in with -Pinclude.integration (used by CI integration-test job).
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform {
+        if (project.findProperty("include.integration") != "true") {
+            excludeTags("integration")
+        }
+    }
+}

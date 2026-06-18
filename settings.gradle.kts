@@ -52,6 +52,7 @@ include(
 // ── Shared library modules ───────────────────────────────────────────────────
 include(
     ":libs:common",
+    ":libs:common-test",
 )
 
 // ── Bounded Context service modules ──────────────────────────────────────────

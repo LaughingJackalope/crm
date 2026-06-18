@@ -4,6 +4,11 @@ import com.crm.sales.application.OpportunityRepository
 import com.crm.sales.domain.opportunity.SalesStage
 import com.crm.sales.infrastructure.persistence.IncomingEventLogEntity
 import com.crm.sales.infrastructure.persistence.IncomingEventLogRepository
+
+import com.crm.test.CrmIntegrationTestResourceLifecycleManager
+import com.crm.test.EventTestProducer
+import com.crm.test.TestTags
+
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
@@ -20,16 +25,15 @@ import java.util.UUID
  * Integration tests for [CustomerEventConsumer].
  *
  * Uses @QuarkusTest with Testcontainers for PostgreSQL and Kafka.
- * A [KafkaTestResourceLifecycleManager] starts the Kafka container and
- * a [EventTestProducer] injects JSON event envelopes into the topic.
+* A [SalesIntegrationTestResource] starts the Testcontainers for PostgreSQL
  *
  * Tests verify the full pipeline: Kafka message → @Incoming consumer →
  * idempotency check → opportunity creation → outbox write,
  * all within a transactional boundary.
  */
 @QuarkusTest
-@QuarkusTestResource(KafkaTestResourceLifecycleManager::class)
-@TestMethodOrder(OrderAnnotation::class)
+@QuarkusTestResource(SalesIntegrationTestResource::class)
+@Tag(TestTags.INTEGRATION)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class CustomerEventConsumerIntegrationTest {
 

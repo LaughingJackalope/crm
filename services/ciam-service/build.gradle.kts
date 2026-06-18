@@ -45,4 +45,7 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.kafka)
     testImplementation(libs.rest.assured)
+
+    // ── Shared test infrastructure ─────────────────────────────────────────
+    testImplementation(project(":libs:common-test"))
 }

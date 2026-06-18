@@ -1,4 +1,4 @@
-package com.crm.sales.infrastructure.messaging
+package com.crm.test
 
 import jakarta.enterprise.context.ApplicationScoped
 import org.apache.kafka.clients.producer.KafkaProducer
@@ -7,10 +7,18 @@ import org.apache.kafka.common.serialization.StringSerializer
 import java.util.Properties
 
 /**
- * Simple Kafka producer for injecting test events.
+ * Shared Kafka producer for injecting test events into topics during integration tests.
  *
- * Configured via application-test.properties with the bootstrap.servers
- * pointing at the Testcontainer.
+ * Reads `kafka.bootstrap.servers` from system properties (set by
+ * [CrmIntegrationTestResourceLifecycleManager]) with a fallback to localhost.
+ *
+ * Usage:
+ * ```
+ * @Inject
+ * lateinit var testProducer: EventTestProducer
+ *
+ * testProducer.send("my.topic", key, jsonEnvelope)
+ * ```
  */
 @ApplicationScoped
 class EventTestProducer {

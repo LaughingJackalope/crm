@@ -10,14 +10,19 @@ import com.crm.marketing.infrastructure.persistence.IncomingEventLogRepository
 import com.crm.marketing.infrastructure.persistence.OutboxEventEntity
 import com.crm.marketing.infrastructure.persistence.OutboxEventRepository
 import com.crm.marketing.infrastructure.persistence.OutboxStatus
+
+import com.crm.test.CrmIntegrationTestResourceLifecycleManager
+import com.crm.test.EventTestProducer
+import com.crm.test.TestTags
+
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.assertj.core.api.Assertions.assertThat
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.*
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.MethodOrderer.OrderAnnotation
 import java.math.BigDecimal
 import java.time.Duration
@@ -25,8 +30,8 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 @QuarkusTest
-@QuarkusTestResource(KafkaTestResourceLifecycleManager::class)
-@TestMethodOrder(OrderAnnotation::class)
+@QuarkusTestResource(MarketingIntegrationTestResource::class)
+@Tag(TestTags.INTEGRATION)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SalesEventConsumerIntegrationTest {
 

@@ -9,6 +9,8 @@
 /libs/contracts/async-api/build/
 /libs/contracts/open-api/build/
 /libs/contracts/open-api/build/classes/kotlin/main/
+/libs/common-test/build/
+/libs/common-test/build/classes/kotlin/main/
 /services/billing-service/build/
 /services/billing-service/build/classes/kotlin/main/
 /services/ciam-service/build/

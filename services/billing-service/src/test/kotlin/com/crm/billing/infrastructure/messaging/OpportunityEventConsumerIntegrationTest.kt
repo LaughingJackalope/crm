@@ -1,4 +1,7 @@
+
 package com.crm.billing.infrastructure.messaging
+
+import com.crm.test.TestTags
 
 import com.crm.billing.domain.invoice.InvoiceStatus
 import com.crm.billing.infrastructure.persistence.IncomingEventLogEntity
@@ -8,6 +11,9 @@ import com.crm.billing.infrastructure.persistence.InvoiceRepository
 import com.crm.billing.infrastructure.persistence.OutboxEventEntity
 import com.crm.billing.infrastructure.persistence.OutboxEventRepository
 import com.crm.billing.infrastructure.persistence.OutboxStatus
+
+import com.crm.test.CrmIntegrationTestResourceLifecycleManager
+import com.crm.test.EventTestProducer
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
@@ -29,9 +35,8 @@ import java.util.UUID
  * idempotency check → invoice creation → outbox write,
  * all within a transactional boundary.
  */
-@QuarkusTest
-@QuarkusTestResource(KafkaTestResourceLifecycleManager::class)
-@TestMethodOrder(OrderAnnotation::class)
+@QuarkusTestResource(BillingIntegrationTestResource::class)
+@Tag(TestTags.INTEGRATION)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OpportunityEventConsumerIntegrationTest {
 

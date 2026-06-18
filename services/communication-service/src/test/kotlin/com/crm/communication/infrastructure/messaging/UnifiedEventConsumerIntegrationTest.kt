@@ -7,6 +7,11 @@ import com.crm.communication.infrastructure.persistence.NotificationEntity
 import com.crm.communication.infrastructure.persistence.NotificationRepository
 import com.crm.communication.infrastructure.persistence.OutboxEventEntity
 import com.crm.communication.infrastructure.persistence.OutboxEventRepository
+
+import com.crm.test.CrmIntegrationTestResourceLifecycleManager
+import com.crm.test.EventTestProducer
+import com.crm.test.TestTags
+
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
@@ -20,8 +25,8 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 @QuarkusTest
-@QuarkusTestResource(KafkaTestResourceLifecycleManager::class)
-@TestMethodOrder(OrderAnnotation::class)
+@QuarkusTestResource(CommunicationIntegrationTestResource::class)
+@Tag(TestTags.INTEGRATION)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UnifiedEventConsumerIntegrationTest {
 

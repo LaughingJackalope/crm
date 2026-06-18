@@ -5,19 +5,24 @@
 # Architecture Overview:
 #
 #   ┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
-#   │ Path Filter / │────▶│ Dynamic Matrix   │────▶│  Build & Test   │
-#   │ Dispatch Bypass│    │ (affected svcs)  │     │  (per service)  │
+#   │ Path Filter / │────▶│ Dynamic Matrix   │────▶│   Unit Tests    │
+#   │ Dispatch Bypass│    │ (affected svcs)  │     │  (fast, no Docker)│
 #   └──────────────┘     └──────────────────┘     └────────┬────────┘
 #                                                          │
 #   ┌──────────────┐     ┌──────────────────┐     ┌───────▼────────┐
-#   │ Version      │────▶│ Gradle -Pversion  │────▶│ Stage Versioned│
-#   │ Resolution   │     │ build             │     │ Runner JAR     │
+#   │ Version      │────▶│ Gradle -Pversion  │────▶│ Integration    │
+#   │ Resolution   │     │                   │     │ Tests (Docker) │
 #   └──────────────┘     └──────────────────┘     └───────┬────────┘
 #                                                          │
 #                                                 ┌───────▼────────┐
 #                                                 │ Artifact Upload│
 #                                                 │ (14-day TTL)   │
 #                                                 └────────────────┘
+#
+# Test Strategy:
+#   Unit tests (@Tag("integration") excluded): Fast feedback, no Docker.
+#   Integration tests (@Tag("integration") only): Testcontainers for Postgres+Kafka.
+#   Both phases must pass before artifacts are uploaded.
 #
 # Trigger Modes:
 #   1. push/PR (automatic): dorny/paths-filter detects changed services.
@@ -275,39 +280,126 @@ jobs:
           echo "build_version=${VER}" >> "$GITHUB_OUTPUT"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # JOB: build
+  # JOB: unit-test
   # ═══════════════════════════════════════════════════════════════════════════
-  # Dynamically expands the affected-services array into a parallel matrix.
-  # Each matrix cell compiles, tests, stages with versioned naming, and
-  # uploads one service.
+  # Fast feedback: compiles and runs unit tests only.
+  # Integration tests (@Tag("integration")) are excluded — no Docker needed.
   #
-  # If affected-services is `[]`, the matrix is zero-dimensional and this job
-  # is skipped — GitHub does not provision any runners.
+  # This catches compilation errors, unit test failures, and regressions
+  # in seconds rather than waiting for Testcontainers to start.
   # ═══════════════════════════════════════════════════════════════════════════
-  build:
-    name: Build (${{ matrix.service }})
+  unit-test:
+    name: Unit Test (${{ matrix.service }})
     needs: detect-changes
-    # Skip entirely if no services changed (e.g., docs-only PR).
     if: needs.detect-changes.outputs.any-changed == 'true'
     runs-on: ubuntu-latest
 
     strategy:
-      # ── Dynamic matrix from detect-changes output ──────────────────────
-      # fromJson parses the JSON array into parallel job dimensions.
-      # Example: ["billing-service","communication-service"] → 2 parallel jobs.
-      # Full 6-element array on workflow_dispatch or global changes.
       matrix:
         service: ${{ fromJson(needs.detect-changes.outputs['affected-services']) }}
-      # Run all matrix cells in parallel — no service depends on another's
-      # build output in this pipeline (they're independently deployable).
       max-parallel: 6
-      # Don't cancel sibling jobs if one fails — we want the full picture
-      # of what's broken across the affected set.
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Gradle with cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          dependency-graph: generate-and-upload
+
+      # ── Compile & Unit Test ────────────────────────────────────────────────
+      # Runs `./gradlew :services:<name>:test` which excludes @Tag("integration")
+      # tests by default (configured in crm.quarkus-convention).
+      # No Docker daemon required — these are pure JVM tests.
+      - name: Compile & Unit Test — ${{ matrix.service }}
+        run: |
+          ./gradlew :services:${{ matrix.service }}:test \
+            -Pversion=${{ needs.detect-changes.outputs.build-version }} \
+            --no-daemon \
+            --build-cache \
+            --configuration-cache \
+            --parallel
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB: integration-test
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Runs @Tag("integration") tests with Testcontainers (Postgres + Kafka).
+  # Depends on unit-test passing — no point spinning up Docker if unit tests fail.
+  #
+  # GitHub Actions ubuntu-latest runners have Docker available, so
+  # Testcontainers can start containers directly.
+  # ═══════════════════════════════════════════════════════════════════════════
+  integration-test:
+    name: Integration Test (${{ matrix.service }})
+    needs: [detect-changes, unit-test]
+    if: needs.detect-changes.outputs.any-changed == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs['affected-services']) }}
+      max-parallel: 6
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Gradle with cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          dependency-graph: generate-and-upload
+
+      # ── Integration Test ──────────────────────────────────────────────────
+      # Runs only @Tag("integration") tests via -Pinclude.integration.
+      # Testcontainers starts Postgres 17-alpine + Confluent Kafka 7.7.1.
+      - name: Integration Test — ${{ matrix.service }}
+        run: |
+          ./gradlew :services:${{ matrix.service }}:test \
+            -Pversion=${{ needs.detect-changes.outputs.build-version }} \
+            -Pinclude.integration \
+            --no-daemon \
+            --build-cache \
+            --parallel
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB: package
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stages versioned runner JARs after both test phases pass.
+  # Depends on unit-test AND integration-test.
+  # ═══════════════════════════════════════════════════════════════════════════
+  package:
+    name: Package (${{ matrix.service }})
+    needs: [detect-changes, unit-test, integration-test]
+    if: needs.detect-changes.outputs.any-changed == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs['affected-services']) }}
+      max-parallel: 6
       fail-fast: false
 
     permissions:
       contents: read
-      # Required for actions/upload-artifact.
       actions: write
 
     steps:
@@ -319,36 +411,24 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-          # Enable built-in Gradle cache via the setup-java cache key.
           cache: gradle
 
       - name: Setup Gradle with cache
         uses: gradle/actions/setup-gradle@v4
         with:
-          # ── Cache configuration ──────────────────────────────────────────
-          # On main: read + push (establishes the authoritative cache).
-          # On PRs/branches: read-only (consume cache, never pollute).
-          #
-          # This prevents a broken feature branch from poisoning the shared
-          # cache with corrupt or partial build artifacts.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-          # ── Dependency graph ────────────────────────────────────────────
-          dependency-graph: generate-and-upload
-
-      # ── Compile & Test ────────────────────────────────────────────────────
-      # -Pversion is consumed by convention plugins:
-      #     version = findProperty("version")?.toString() ?: "0.0.1-SNAPSHOT"
-      # This sets the project version, which Quarkus uses to name the runner
-      # JAR: <service>-<version>-runner.jar.
-      - name: Compile & Test — ${{ matrix.service }}
+      # ── Build Runner JAR ──────────────────────────────────────────────────
+      # quarkusBuild produces the runner JAR for the service.
+      # -Pversion sets the JAR filename: <service>-<version>-runner.jar.
+      - name: Build runner JAR — ${{ matrix.service }}
         run: |
-          ./gradlew :services:${{ matrix.service }}:build \
+          ./gradlew :services:${{ matrix.service }}:quarkusBuild \
             -Pversion=${{ needs.detect-changes.outputs.build-version }} \
             --no-daemon \
             --build-cache \
-            --configuration-cache \
             --parallel
+
       # ── Stage Versioned Runner JAR ────────────────────────────────────────
       # Two JAR naming patterns exist across services:
       #   1. Services with @QuarkusTest: <service>-<version>-runner.jar
@@ -367,14 +447,10 @@ jobs:
           BUILD_LIBS="services/${SERVICE}/build/libs"
 
           # ── Locate the Quarkus runner JAR ───────────────────────────────
-          # Services with @QuarkusTest produce <artifact>-<version>-runner.jar
-          # via quarkusBuild. Services with only unit tests produce a plain
-          # <artifact>-<version>.jar via the standard build task.
           # Try the runner JAR first, then fall back to the plain JAR.
           RUNNER_JAR=$(find "${BUILD_LIBS}" -maxdepth 1 -name '*-runner.jar' -type f | head -1)
 
           if [[ -z "${RUNNER_JAR}" ]]; then
-            # No runner JAR — try the plain JAR produced by the build task.
             RUNNER_JAR=$(find "${BUILD_LIBS}" -maxdepth 1 -name "${SERVICE}-${VERSION}.jar" -type f | head -1)
           fi
 
@@ -388,9 +464,6 @@ jobs:
           echo "Found runner JAR: ${RUNNER_JAR}"
 
           # ── Normalize artifact name ─────────────────────────────────────
-          # Convention: <service>-<version>.jar
-          # The -runner suffix from Quarkus is stripped; the version from
-          # -Pversion is preserved in the filename for traceability.
           STAGED_NAME="${SERVICE}-${VERSION}.jar"
           STAGED_DIR="staged-artifacts"
           STAGED_PATH="${STAGED_DIR}/${STAGED_NAME}"
@@ -401,22 +474,14 @@ jobs:
           echo "Staged: ${STAGED_PATH}"
           ls -lh "${STAGED_PATH}"
 
-          # Expose for the upload step.
           echo "staged_path=${STAGED_PATH}" >> "$GITHUB_OUTPUT"
 
       # ── Upload Versioned Artifact ─────────────────────────────────────────
-      # Artifact name includes service + version for clear identification
-      # in the GitHub Actions UI. 14-day retention for cost control.
       - name: Upload runner JAR artifact — ${{ matrix.service }}
         uses: actions/upload-artifact@v4
         with:
-          # Artifact name: <service>-<version> (no .jar — GitHub adds it).
           name: ${{ matrix.service }}-${{ needs.detect-changes.outputs.build-version }}
           path: staged-artifacts/${{ matrix.service }}-${{ needs.detect-changes.outputs.build-version }}.jar
-          # ── Retention policy ────────────────────────────────────────────
-          # 14-day retention balances debuggability with storage costs.
           retention-days: 14
-          # Fail the step if the artifact file is missing (defense-in-depth).
           if-no-files-found: error
-          # Overwrite if re-running the same workflow (idempotent uploads).
           overwrite: true

@@ -9,6 +9,11 @@ import com.crm.support.infrastructure.persistence.OutboxEventEntity
 import com.crm.support.infrastructure.persistence.OutboxEventRepository
 import com.crm.support.infrastructure.persistence.TicketEntity
 import com.crm.support.infrastructure.persistence.TicketRepository
+
+import com.crm.test.CrmIntegrationTestResourceLifecycleManager
+import com.crm.test.EventTestProducer
+import com.crm.test.TestTags
+
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured
@@ -24,8 +29,8 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 @QuarkusTest
-@QuarkusTestResource(KafkaTestResourceLifecycleManager::class)
-@TestMethodOrder(OrderAnnotation::class)
+@QuarkusTestResource(SupportIntegrationTestResource::class)
+@Tag(TestTags.INTEGRATION)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class LifecycleEventConsumerIntegrationTest {
 

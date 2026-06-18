@@ -31,4 +31,7 @@ dependencies {
     // ── Assertions ──────────────────────────────────────────────────────────
     testImplementation("org.assertj:assertj-core:3.27.3")
     testImplementation("org.awaitility:awaitility-kotlin:4.3.0")
+
+    // ── Shared test infrastructure ─────────────────────────────────────────
+    testImplementation(project(":libs:common-test"))
 }

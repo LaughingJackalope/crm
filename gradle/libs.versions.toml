@@ -58,6 +58,7 @@ testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.re
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
 testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testcontainers" }
 rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "restAssured" }
+kafka-clients = { module = "org.apache.kafka:kafka-clients", version = "3.8.1" }
 quarkus-junit5 = { module = "io.quarkus:quarkus-junit5" }
 quarkus-junit5-mockito = { module = "io.quarkus:quarkus-junit5-mockito" }
 
