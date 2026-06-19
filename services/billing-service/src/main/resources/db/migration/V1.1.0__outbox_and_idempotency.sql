@@ -12,9 +12,7 @@ CREATE TABLE IF NOT EXISTS billing.outbox_event (
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     status          VARCHAR(16)     NOT NULL DEFAULT 'PENDING'
                     CHECK (status IN ('PENDING', 'PUBLISHED', 'FAILED')),
-    retry_count     INTEGER         NOT NULL DEFAULT 0
-
-    -- W3C trace context headers for distributed tracing across outbox boundary
+    retry_count     INTEGER         NOT NULL DEFAULT 0,
     metadata_text        TEXT
 );
 
