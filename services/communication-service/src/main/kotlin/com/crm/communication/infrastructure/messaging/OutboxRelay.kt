@@ -5,12 +5,15 @@ import com.crm.communication.infrastructure.persistence.OutboxEventRepository
 import com.crm.communication.infrastructure.persistence.OutboxStatus
 import com.crm.common.telemetry.TraceContextCarrier
 import io.quarkus.arc.Unremovable
+import io.quarkus.runtime.StartupEvent
 import io.quarkus.scheduler.Scheduled
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import org.jboss.logging.Logger
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Background relay that polls the transactional outbox and publishes
@@ -28,9 +31,17 @@ class OutboxRelay @Inject constructor(
 ) {
 
     private val log = Logger.getLogger(OutboxRelay::class.java)
+    private val ready = AtomicBoolean(false)
+
+    fun onStartup(@Observes event: StartupEvent) {
+        Thread.sleep(5000)
+        ready.set(true)
+        log.info("OutboxRelay started")
+    }
 
     @Scheduled(every = "\${outbox.relay.interval:500ms}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     fun relay() {
+        if (!ready.get()) return
         val pending = outboxRepository.findPending(BATCH_SIZE)
         if (pending.isEmpty()) return
 
@@ -43,6 +54,7 @@ class OutboxRelay @Inject constructor(
 
     @Scheduled(every = "\${outbox.relay.retry-interval:30s}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     fun retryFailed() {
+        if (!ready.get()) return
         val failed = outboxRepository.findFailedForRetry(
             maxRetries = MAX_RETRIES,
             retryThreshold = Instant.now().minusSeconds(RETRY_BACKOFF_SECONDS),

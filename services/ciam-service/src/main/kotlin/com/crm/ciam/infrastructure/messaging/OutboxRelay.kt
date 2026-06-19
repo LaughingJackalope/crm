@@ -1,40 +1,53 @@
 package com.crm.ciam.infrastructure.messaging
 
-import com.crm.common.telemetry.TraceContextCarrier
+import com.crm.ciam.infrastructure.persistence.OutboxEventEntity
 import com.crm.ciam.infrastructure.persistence.OutboxEventRepository
-import io.opentelemetry.context.Context
+import com.crm.ciam.infrastructure.persistence.OutboxStatus
+import com.crm.common.telemetry.TraceContextCarrier
 import io.quarkus.arc.Unremovable
+import io.quarkus.runtime.StartupEvent
 import io.quarkus.scheduler.Scheduled
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
+import org.eclipse.microprofile.reactive.messaging.Channel
+import org.eclipse.microprofile.reactive.messaging.Emitter
+import org.eclipse.microprofile.reactive.messaging.OnOverflow
 import org.jboss.logging.Logger
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Background relay that polls the transactional outbox and publishes
  * pending events to Kafka.
  *
- * Uses EmitterProvider to obtain the emitter lazily, avoiding CDI
- * creation failure when the Kafka broker is not yet available at
- * application startup (Quarkus issue #17841).
+ * Uses a startup gate (@onStartup) to delay the scheduler until SmallRye
+ * Reactive Messaging has connected the Kafka producer.
+ * This avoids SRMSG00019 during startup when Kafka isn't ready yet
+ * (Quarkus issue #17841).
  */
 @Unremovable
 @ApplicationScoped
 class OutboxRelay @Inject constructor(
     private val outboxRepository: OutboxEventRepository,
-    private val emitterProvider: EmitterProvider,
+    @Channel("domain-events")
+    @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 2048)
+    private val emitter: Emitter<String>,
 ) {
 
+    private val started = AtomicBoolean(false)
     private val log = Logger.getLogger(OutboxRelay::class.java)
 
-    /**
-     * Poll the outbox and publish pending events to Kafka.
-     * Runs every 500ms by default. Concurrent execution is skipped
-     * so only one relay cycle runs at a time.
-     */
+    fun onStartup(@Observes event: StartupEvent) {
+        Thread.sleep(5000)
+        started.set(true)
+        log.info("OutboxRelay: scheduler gate opened")
+    }
+
     @Scheduled(every = "\${outbox.relay.interval:500ms}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     fun relay() {
+        if (!started.get()) return
         val pending = outboxRepository.findPending(BATCH_SIZE)
         if (pending.isEmpty()) return
 
@@ -45,12 +58,9 @@ class OutboxRelay @Inject constructor(
         }
     }
 
-    /**
-     * Retry failed events with exponential backoff.
-     * Runs every 30s.
-     */
     @Scheduled(every = "\${outbox.relay.retry-interval:30s}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
     fun retryFailed() {
+        if (!started.get()) return
         val failed = outboxRepository.findFailedForRetry(
             maxRetries = MAX_RETRIES,
             retryThreshold = Instant.now().minusSeconds(RETRY_BACKOFF_SECONDS),
@@ -65,11 +75,11 @@ class OutboxRelay @Inject constructor(
     }
 
     @Transactional
-    fun publishSingle(event: com.crm.ciam.infrastructure.persistence.OutboxEventEntity) {
+    fun publishSingle(event: OutboxEventEntity) {
         val traceContext = TraceContextCarrier.createContextFromHeaders(event.metadata)
         try {
             traceContext.makeCurrent().use {
-                emitterProvider.domainEvents().send(event.payload)
+                emitter.send(event.payload)
             }
             outboxRepository.remove(event.eventId)
         } catch (ex: Exception) {
