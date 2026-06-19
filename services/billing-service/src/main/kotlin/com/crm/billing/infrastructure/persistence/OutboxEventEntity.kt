@@ -52,7 +52,7 @@ class OutboxEventEntity : PanacheEntityBase {
 
     companion object : PanacheCompanion<OutboxEventEntity>
 
-    @Column(name = "metadata", columnDefinition = "text")
+    @Column(name = "metadata_text", columnDefinition = "text")
     var metadata: String? = null
 }
 

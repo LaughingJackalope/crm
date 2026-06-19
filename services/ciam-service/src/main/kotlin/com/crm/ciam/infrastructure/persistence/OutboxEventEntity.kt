@@ -79,7 +79,7 @@ class OutboxEventEntity : PanacheEntityBase {
      * Populated by application services via TraceContextCarrier.extractCurrentTraceHeaders().
      * Consumed by OutboxRelay to reinject the trace context before Kafka publish.
      */
-    @Column(name = "metadata", columnDefinition = "text")
+    @Column(name = "metadata_text", columnDefinition = "text")
     var metadata: String? = null
 
     /**
