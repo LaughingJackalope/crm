@@ -2,15 +2,12 @@ package com.crm.ciam.infrastructure.messaging
 
 import com.crm.common.telemetry.TraceContextCarrier
 import com.crm.ciam.infrastructure.persistence.OutboxEventRepository
-import com.crm.ciam.infrastructure.persistence.OutboxStatus
 import io.opentelemetry.context.Context
+import io.quarkus.arc.Unremovable
 import io.quarkus.scheduler.Scheduled
-import org.eclipse.microprofile.reactive.messaging.Emitter
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
-import org.eclipse.microprofile.reactive.messaging.Channel
-import org.eclipse.microprofile.reactive.messaging.OnOverflow
 import org.jboss.logging.Logger
 import java.time.Instant
 
@@ -18,35 +15,16 @@ import java.time.Instant
  * Background relay that polls the transactional outbox and publishes
  * pending events to Kafka.
  *
- * ## Design
- *
- * - Runs on a fixed delay (configurable, default 500ms).
- * - Each poll fetches a batch of pending/failed-retry events.
- * - For each event: publish to Kafka, then delete from outbox.
- * - All operations are transactional — if Kafka publish fails, the outbox
- *   row remains PENDING for the next cycle.
- *
- * ## Ordering guarantee
- *
- * Events are polled oldest-first (ORDER BY created_at ASC). The entity_id
- * is embedded in the payload for downstream consumers to use as a
- * partition key if needed.
- *
- * ## Failure handling
- *
- * - Kafka unavailable: event stays PENDING, retried next cycle.
- * - After max retries (5): status → FAILED permanently, alert fires.
- * - FAILED events can be manually inspected/replayed.
+ * Uses EmitterProvider to obtain the emitter lazily, avoiding CDI
+ * creation failure when the Kafka broker is not yet available at
+ * application startup (Quarkus issue #17841).
  */
+@Unremovable
 @ApplicationScoped
 class OutboxRelay @Inject constructor(
     private val outboxRepository: OutboxEventRepository,
+    private val emitterProvider: EmitterProvider,
 ) {
-
-    @Inject
-    @Channel("domain-events")
-    @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 2048)
-    private lateinit var emitter: Emitter<String>
 
     private val log = Logger.getLogger(OutboxRelay::class.java)
 
@@ -91,13 +69,11 @@ class OutboxRelay @Inject constructor(
         val traceContext = TraceContextCarrier.createContextFromHeaders(event.metadata)
         try {
             traceContext.makeCurrent().use {
-                emitter.send(event.payload)
+                emitterProvider.domainEvents().send(event.payload)
             }
             outboxRepository.remove(event.eventId)
-            log.tracef("Relay: published event %s (%s)", event.eventId, event.eventType)
         } catch (ex: Exception) {
-            log.warnf(ex, "Relay: failed to publish event %s (%s), retry %d",
-                event.eventId, event.eventType, event.retryCount + 1)
+            log.warnf(ex, "Relay: failed to publish event %s (%s)", event.eventId, event.eventType)
             outboxRepository.markFailed(event.eventId)
         }
     }
