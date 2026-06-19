@@ -5,7 +5,7 @@ import com.crm.ciam.infrastructure.persistence.OutboxEventRepository
 import com.crm.ciam.infrastructure.persistence.OutboxStatus
 import io.opentelemetry.context.Context
 import io.quarkus.scheduler.Scheduled
-import io.smallrye.reactive.messaging.MutinyEmitter
+import org.eclipse.microprofile.reactive.messaging.Emitter
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
@@ -41,10 +41,12 @@ import java.time.Instant
 @ApplicationScoped
 class OutboxRelay @Inject constructor(
     private val outboxRepository: OutboxEventRepository,
+) {
+
+    @Inject
     @Channel("domain-events")
     @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 2048)
-    private val emitter: MutinyEmitter<String>,
-) {
+    private lateinit var emitter: Emitter<String>
 
     private val log = Logger.getLogger(OutboxRelay::class.java)
 
@@ -89,7 +91,7 @@ class OutboxRelay @Inject constructor(
         val traceContext = TraceContextCarrier.createContextFromHeaders(event.metadata)
         try {
             traceContext.makeCurrent().use {
-                emitter.sendAndAwait(event.payload)
+                emitter.send(event.payload)
             }
             outboxRepository.remove(event.eventId)
             log.tracef("Relay: published event %s (%s)", event.eventId, event.eventType)

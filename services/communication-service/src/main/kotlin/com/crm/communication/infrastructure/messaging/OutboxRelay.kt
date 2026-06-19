@@ -16,12 +16,15 @@ import org.jboss.logging.Logger
 import java.time.Instant
 
 @ApplicationScoped
-class OutboxRelay @Inject constructor(
-    private val outboxRepository: OutboxEventRepository,
+class OutboxRelay {
+    @Inject
+    private lateinit var outboxRepository: OutboxEventRepository
+
+    @Inject
     @Channel("domain-events")
     @OnOverflow(value = OnOverflow.Strategy.BUFFER, bufferSize = 2048)
-    private val emitter: MutinyEmitter<String>,
-) {
+    private lateinit var emitter: MutinyEmitter<String>
+
     private val log = Logger.getLogger(OutboxRelay::class.java)
 
     @Scheduled(every = "\${outbox.relay.interval:500ms}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
