@@ -433,6 +433,7 @@ jobs:
         run: |
           ./gradlew :services:${{ matrix.service }}:quarkusBuild \
             -Pversion=${{ needs.detect-changes.outputs.build-version }} \
+            -DskipTests \
             --no-daemon \
             --build-cache \
             --parallel
@@ -533,7 +534,26 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # ── Build runner JAR (compilation + tests already passed) ────────────────
+      # We need quarkusBuild first to produce the quarkus-app/ directory
+      # that Jib reads from. Tests are skipped since they already passed.
+      - name: Build runner JAR — ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          SERVICE="${{ matrix.service }}"
+          VERSION="${{ needs.detect-changes.outputs.build-version }}"
+
+          ./gradlew :services:${SERVICE}:quarkusBuild \
+            -Pversion="${VERSION}" \
+            -DskipTests \
+            --no-daemon \
+            --build-cache
+
+      # ── Build & push container image ─────────────────────────────────────────
+      # Uses imageBuild/imagePush tasks which read from the quarkus-app/
+      # directory assembled by the previous step. No recompilation needed.
       - name: Build & push container image — ${{ matrix.service }}
+        id: build-image
         env:
           QUARKUS_CONTAINER_IMAGE_REGISTRY: ghcr.io
           QUARKUS_CONTAINER_IMAGE_ORGANIZATION: ${{ github.repository_owner }}
@@ -548,18 +568,22 @@ jobs:
           SERVICE="${{ matrix.service }}"
           VERSION="${{ needs.detect-changes.outputs.build-version }}"
 
-          # Run quarkusBuild + Jib in one step. Gradle reuses the compilation
-          # cache from the package job, so this is near-instant.
-          # Jib builds from the quarkus-app directory that quarkusBuild assembles.
-          ./gradlew :services:${SERVICE}:quarkusBuild \
+          # Build the container image using Jib (reads from quarkus-app/)
+          ./gradlew :services:${SERVICE}:imageBuild \
             -Pversion="${VERSION}" \
             -Dquarkus.container-image.build=true \
+            --no-daemon \
+            --build-cache
+
+          # Push to GHCR (separate step for clearer error messages)
+          ./gradlew :services:${SERVICE}:imagePush \
+            -Pversion="${VERSION}" \
             -Dquarkus.container-image.push=true \
-            -DskipTests \
             --no-daemon \
             --build-cache
 
       - name: Verify image — ${{ matrix.service }}
+        if: steps.build-image.outcome == 'success'
         run: |
           echo "✅ Image pushed: ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ needs.detect-changes.outputs.build-version }}"
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
