@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: postgres-support-init-schema
-  namespace: crm
-data:
-  init-schema.sql: |
-    CREATE SCHEMA IF NOT EXISTS support;
-    GRANT ALL PRIVILEGES ON SCHEMA support TO crm;

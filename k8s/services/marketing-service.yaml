@@ -15,13 +15,13 @@ spec:
     spec:
       containers:
         - name: marketing-service
-          image: ghcr.io/laughingjackalope/marketing-service:latest
+          image: marketing-service:local
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8085
+            - containerPort: 8080
           env:
             - name: QUARKUS_DATASOURCE_JDBC_URL
-              value: "jdbc:postgresql://postgres-marketing:5432/crm"
+              value: "jdbc:postgresql://postgres:5432/crm"
             - name: QUARKUS_DATASOURCE_USERNAME
               value: "crm"
             - name: QUARKUS_DATASOURCE_PASSWORD
@@ -42,13 +42,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8085
+              port: 8080
             initialDelaySeconds: 30
             periodSeconds: 15
           readinessProbe:
             httpGet:
               path: /health
-              port: 8085
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 10
 ---
@@ -61,6 +61,6 @@ spec:
   selector:
     app: marketing-service
   ports:
-    - port: 8085
-      targetPort: 8085
+    - port: 8080
+      targetPort: 8080
   type: ClusterIP

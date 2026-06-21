@@ -1,0 +1,174 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: kong
+spec:
+  controllerName: konghq.com/kic-gateway-controller
+---
+# ═══════════════════════════════════════════════════════════════════════════
+# Kong API Gateway — reverse proxy / router for all CRM services
+# ═══════════════════════════════════════════════════════════════════════════
+# Kong runs as a Deployment with DB-less mode (declarative config via
+# ConfigMap). It exposes a single NodePort (30080) that fronts all six
+# services via path-based routing:
+#
+#   /ciam/*         → ciam-service:8080
+#   /sales/*        → sales-service:8080
+#   /billing/*      → billing-service:8080
+#   /support/*      → support-service:8080
+#   /marketing/*    → marketing-service:8080
+#   /communication/*→ communication-service:8080
+#
+# This replaces the previous 6 individual NodePort Services, collapsing
+# the ingress surface to a single entry point.
+# ═══════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-declarative-conf
+  namespace: crm
+data:
+  kong.yml: |
+    _format_version: "3.0"
+    _transform: true
+
+    services:
+      - name: ciam-service
+        url: http://ciam-service.crm.svc.cluster.local:8080
+        routes:
+          - name: ciam-route
+            paths:
+              - /ciam
+            strip_path: false
+            preserve_host: false
+
+      - name: sales-service
+        url: http://sales-service.crm.svc.cluster.local:8080
+        routes:
+          - name: sales-route
+            paths:
+              - /sales
+            strip_path: false
+            preserve_host: false
+
+      - name: billing-service
+        url: http://billing-service.crm.svc.cluster.local:8080
+        routes:
+          - name: billing-route
+            paths:
+              - /billing
+            strip_path: false
+            preserve_host: false
+
+      - name: support-service
+        url: http://support-service.crm.svc.cluster.local:8080
+        routes:
+          - name: support-route
+            paths:
+              - /support
+            strip_path: false
+            preserve_host: false
+
+      - name: marketing-service
+        url: http://marketing-service.crm.svc.cluster.local:8080
+        routes:
+          - name: marketing-route
+            paths:
+              - /marketing
+            strip_path: false
+            preserve_host: false
+
+      - name: communication-service
+        url: http://communication-service.crm.svc.cluster.local:8080
+        routes:
+          - name: communication-route
+            paths:
+              - /communication
+            strip_path: false
+            preserve_host: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: crm
+  labels:
+    app: kong
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+    spec:
+      containers:
+        - name: kong
+          image: kong:3.7
+          env:
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /etc/kong/kong.yml
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8000"
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:8444"
+            - name: KONG_LOG_LEVEL
+              value: notice
+            - name: KONG_PROXY_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_PROXY_ERROR_LOG
+              value: /dev/stderr
+          ports:
+            - name: proxy
+              containerPort: 8000
+            - name: admin
+              containerPort: 8444
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8444
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8444
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: kong-config
+              mountPath: /etc/kong
+      volumes:
+        - name: kong-config
+          configMap:
+            name: kong-declarative-conf
+            items:
+              - key: kong.yml
+                path: kong.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+  namespace: crm
+spec:
+  selector:
+    app: kong
+  ports:
+    - name: proxy
+      port: 8000
+      targetPort: 8000
+      nodePort: 30080
+  type: NodePort

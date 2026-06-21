@@ -8,4 +8,3 @@ resources:
   - support-service.yaml
   - marketing-service.yaml
   - communication-service.yaml
-  - ingress.yaml

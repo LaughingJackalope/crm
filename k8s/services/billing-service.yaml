@@ -15,18 +15,18 @@ spec:
     spec:
       containers:
         - name: billing-service
-          image: ghcr.io/laughingjackalope/billing-service:latest
+          image: billing-service:local
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8083
+            - containerPort: 8080
           env:
             - name: QUARKUS_DATASOURCE_JDBC_URL
-              value: "jdbc:postgresql://postgres-billing:5432/crm"
+              value: "jdbc:postgresql://postgres:5432/crm"
             - name: QUARKUS_DATASOURCE_USERNAME
               value: "crm"
             - name: QUARKUS_DATASOURCE_PASSWORD
               value: "crm"
-            - name: QUARKUS_KAFKA_BOOTSTRAP_SERVERS
+            - name: KAFKA_BOOTSTRAP_SERVERS
               value: "kafka:9092"
             - name: QUARKUS_OIDC_ENABLED
               value: "false"
@@ -42,13 +42,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8083
+              port: 8080
             initialDelaySeconds: 30
             periodSeconds: 15
           readinessProbe:
             httpGet:
               path: /health
-              port: 8083
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 10
 ---
@@ -61,6 +61,6 @@ spec:
   selector:
     app: billing-service
   ports:
-    - port: 8083
-      targetPort: 8083
+    - port: 8080
+      targetPort: 8080
   type: ClusterIP

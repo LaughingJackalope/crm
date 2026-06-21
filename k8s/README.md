@@ -8,15 +8,26 @@ Local Kind cluster deployment for all 6 Bounded Context services.
 ┌─────────────────────────────────────────────────────────────────┐
 │  Kind Cluster (crm)                                             │
 │                                                                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ ciam-service │  │sales-service │  │billing-svc   │  ...     │
-│  │  :8081       │  │  :8082       │  │  :8083       │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-│         │                 │                 │                   │
-│  ┌──────▼───────┐  ┌──────▼───────┐  ┌──────▼───────┐          │
-│  │ postgres-ciam│  │postgres-sales│  │postgres-bill │  ...     │
-│  │  :5432       │  │  :5432       │  │  :5432       │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  Kong API Gateway (:80 / NodePort 30080)                 │   │
+│  │    /ciam/*         → ciam-service:8080                   │   │
+│  │    /sales/*        → sales-service:8080                  │   │
+│  │    /billing/*      → billing-service:8080                │   │
+│  │    /support/*      → support-service:8080                │   │
+│  │    /marketing/*    → marketing-service:8080              │   │
+│  │    /communication/*→ communication-service:8080          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                          │                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ciam-svc  │  │sales-svc │  │billing   │  │support   │  ...   │
+│  │  :8080   │  │  :8080   │  │  :8080   │  │  :8080   │        │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
+│       │              │              │              │             │
+│  ┌────▼──────────────▼──────────────▼──────────────▼─────┐      │
+│  │  Shared PostgreSQL (:5432)                             │      │
+│  │    Schemas: ciam, sales, billing, support,             │      │
+│  │             marketing, communication                   │      │
+│  └────────────────────────────────────────────────────────┘      │
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐                             │
 │  │    kafka     │  │  zookeeper   │                             │
@@ -25,9 +36,11 @@ Local Kind cluster deployment for all 6 Bounded Context services.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Each service has its own PostgreSQL instance (StatefulSet) and connects to a
-shared Kafka cluster. Services discover each other via Kubernetes DNS
-(`<service-name>.crm.svc.cluster.local`).
+**Key design decisions:**
+- **Single entry point**: Kong API Gateway on port 80 routes all traffic via path prefixes.
+- **Standard port**: All services listen on port 8080 internally.
+- **Shared database**: One PostgreSQL instance with schema-per-service (replaces 6 separate instances).
+- **Gateway API**: Kubernetes Gateway API HTTPRoute resources for declarative routing (with Kong as fallback via declarative config).
 
 ## Prerequisites
 
@@ -45,7 +58,7 @@ shared Kafka cluster. Services discover each other via Kubernetes DNS
 kind create cluster --name crm --config k8s/kind-config.yaml
 ```
 
-### 2. Deploy infrastructure (Kafka + Postgres)
+### 2. Deploy infrastructure (Kafka + Postgres + Kong)
 
 ```bash
 kubectl apply -k k8s/infra/
@@ -71,14 +84,16 @@ kubectl -n crm wait --for=condition=ready pod -l "app in (ciam-service,sales-ser
 
 ### 4. Access the applications
 
+All services are accessible through Kong on **port 80**:
+
 | Service | URL |
 |---|---|
-| CIAM (Contacts) | http://localhost:8081/ciam/contacts |
-| Sales (Opportunities) | http://localhost:8082/sales/opportunities |
-| Billing (Invoices) | http://localhost:8083/billing/invoices |
-| Support (Tickets) | http://localhost:8084/support/tickets |
-| Marketing (Campaigns) | http://localhost:8085/marketing/campaigns |
-| Communication (Messages) | http://localhost:8086/communication/messages |
+| CIAM (Contacts) | http://localhost/ciam/contacts |
+| Sales (Opportunities) | http://localhost/sales/opportunities |
+| Billing (Invoices) | http://localhost/billing/invoices |
+| Support (Tickets) | http://localhost/support/tickets |
+| Marketing (Campaigns) | http://localhost/marketing/campaigns |
+| Communication (Messages) | http://localhost/communication/messages |
 
 ## Building and Pushing Images
 
@@ -109,16 +124,23 @@ kubectl -n crm get pods
 # Check service logs
 kubectl -n crm logs -f deployment/ciam-service
 
-# Port-forward a specific service (alternative to NodePort)
-kubectl -n crm port-forward svc/ciam-service 8081:8081
+# Check Kong logs
+kubectl -n crm logs -f deployment/kong
+
+# Check Kong's routing config
+kubectl -n crm exec deployment/kong -- kong config parse /etc/kong/kong.yml
 
 # Check Kafka topics
 kubectl -n crm exec -it deployment/kafka -- \
   kafka-topics --bootstrap-server localhost:9092 --list
 
-# Connect to a Postgres instance
-kubectl -n crm exec -it statefulset/postgres-ciam -- \
-  psql -U crm -c "SELECT count(*) FROM ciam.customer;"
+# Connect to shared Postgres (all schemas in one instance)
+kubectl -n crm exec -it statefulset/postgres -- \
+  psql -U crm -c "\dn"
+
+# Query a specific schema
+kubectl -n crm exec -it statefulset/postgres -- \
+  psql -U crm -d crm -c "SET search_path TO ciam; SELECT count(*) FROM customer;"
 
 # Restart a service
 kubectl -n crm rollout restart deployment/ciam-service
@@ -135,7 +157,7 @@ Key variables:
 
 | Variable | Description | Example |
 |---|---|---|
-| `QUARKUS_DATASOURCE_JDBC_URL` | JDBC URL | `jdbc:postgresql://postgres-ciam:5432/crm` |
+| `QUARKUS_DATASOURCE_JDBC_URL` | JDBC URL (shared postgres) | `jdbc:postgresql://postgres:5432/crm` |
 | `QUARKUS_DATASOURCE_USERNAME` | DB username | `crm` |
 | `QUARKUS_DATASOURCE_PASSWORD` | DB password | `crm` |
 | `QUARKUS_KAFKA_BOOTSTRAP_SERVERS` | Kafka brokers | `kafka:9092` |
@@ -147,12 +169,15 @@ Key variables:
 | Component | Count | Memory Request | Memory Limit |
 |---|---|---|---|
 | Service pods | 6 | 256Mi each (1.5Gi) | 512Mi each (3Gi) |
-| Postgres StatefulSets | 6 | 128Mi each (768Mi) | 256Mi each (1.5Gi) |
+| Kong Gateway | 1 | 256Mi | 512Mi |
+| PostgreSQL (shared) | 1 | 256Mi | 512Mi |
 | Kafka | 1 | 512Mi | 1Gi |
 | Zookeeper | 1 | 256Mi | 512Mi |
-| **Total** | **14** | **~3.5Gi** | **~6Gi** |
+| **Total** | **10** | **~2.5Gi** | **~5.5Gi** |
 
-This leaves ~18Gi for macOS and Docker Desktop overhead.
+This leaves ~18.5Gi for macOS and Docker Desktop overhead.
+
+**Savings vs. previous architecture**: Eliminated 5 Postgres StatefulSets (5 × 256Mi = 1.25Gi saved in limits).
 
 ## Troubleshooting
 
@@ -163,15 +188,20 @@ Check resource availability: `kubectl -n crm describe pod <name>`
 Check logs: `kubectl -n crm logs <pod-name> --previous`
 
 ### Services not accessible
-Verify NodePort mapping: `kubectl -n crm get svc`
-Check pod readiness: `kubectl -n crm get pods -o wide`
+- Verify Kong is running: `kubectl -n crm get pods -l app=kong`
+- Check Kong logs: `kubectl -n crm logs deployment/kong`
+- Test routing: `curl -v http://localhost/ciam/contacts`
 
 ### Database connection failures
-Ensure Postgres pods are ready: `kubectl -n crm get statefulsets`
-Check DNS resolution from a service pod:
-```bash
-kubectl -n crm exec -it deployment/ciam-service -- nslookup postgres-ciam
-```
+- Ensure Postgres is ready: `kubectl -n crm get statefulsets`
+- Check DNS resolution from a service pod:
+  ```bash
+  kubectl -n crm exec -it deployment/ciam-service -- nslookup postgres
+  ```
+- Verify schemas exist:
+  ```bash
+  kubectl -n crm exec -it statefulset/postgres -- psql -U crm -c "\dn"
+  ```
 
 ### Kafka connection failures
 Ensure Kafka is ready: `kubectl -n crm logs deployment/kafka`

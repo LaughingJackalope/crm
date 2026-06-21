@@ -1,0 +1,98 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Shared PostgreSQL instance — single database, schema-per-service
+# ═══════════════════════════════════════════════════════════════════════════
+# All six Bounded Context services connect to this single Postgres instance.
+# Each service's Flyway migrations target its own schema (ciam, sales, etc.).
+# This replaces the previous 6 individual StatefulSets, cutting memory from
+# ~1.5Gi (6 × 256Mi limit) to a single 512Mi limit.
+# ═══════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-schemas
+  namespace: crm
+data:
+  01-init-schemas.sql: |
+    -- Schema-per-Bounded-Context: all in one database, one instance.
+    -- Each service's Hibernate/Flyway config targets its own schema.
+    CREATE SCHEMA IF NOT EXISTS ciam;
+    CREATE SCHEMA IF NOT EXISTS sales;
+    CREATE SCHEMA IF NOT EXISTS support;
+    CREATE SCHEMA IF NOT EXISTS billing;
+    CREATE SCHEMA IF NOT EXISTS marketing;
+    CREATE SCHEMA IF NOT EXISTS communication;
+
+    GRANT ALL PRIVILEGES ON SCHEMA ciam         TO crm;
+    GRANT ALL PRIVILEGES ON SCHEMA sales         TO crm;
+    GRANT ALL PRIVILEGES ON SCHEMA support       TO crm;
+    GRANT ALL PRIVILEGES ON SCHEMA billing       TO crm;
+    GRANT ALL PRIVILEGES ON SCHEMA marketing     TO crm;
+    GRANT ALL PRIVILEGES ON SCHEMA communication TO crm;
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: crm
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: crm
+            - name: POSTGRES_USER
+              value: crm
+            - name: POSTGRES_PASSWORD
+              value: crm
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: postgres-init-schemas
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: crm
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None
