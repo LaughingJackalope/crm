@@ -534,6 +534,14 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # ── Docker daemon ──────────────────────────────────────────────────────────
+      # GitHub Actions ubuntu-latest runners have no Docker daemon. Jib's buildFromJar
+      # tries a `docker load` into a local daemon, which fails with "Unable to create
+      # container image" when no daemon is present. Setting up Buildx provides the
+      # daemon that Jib expects, making the build work regardless of Quarkus version.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # ── Build runner JAR (compilation + tests already passed) ────────────────
       # We need quarkusBuild first to produce the quarkus-app/ directory
       # that Jib reads from. Tests are skipped since they already passed.
@@ -550,10 +558,10 @@ jobs:
             --build-cache
 
       # ── Build & push container image ─────────────────────────────────────────
-      # Builds and pushes an OCI container image using Quarkus Jib. Both build
-      # and push are done in a single Gradle invocation so Jib uses the push
-      # code path, which skips the local `docker load` that fails on GitHub
-      # Actions runners (no Docker daemon). See quarkusio/quarkus#49465.
+      # Builds and pushes an OCI container image using Quarkus Jib. The preceding
+      # "Set up Docker Buildx" step provides a local Docker daemon so Jib can
+      # `docker load` the built image before pushing. This avoids the
+      # "Unable to create container image" error on CI runners without Docker.
       - name: Build & push container image — ${{ matrix.service }}
         id: build-image
         env:
