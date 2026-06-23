@@ -550,8 +550,10 @@ jobs:
             --build-cache
 
       # ── Build & push container image ─────────────────────────────────────────
-      # Uses imageBuild/imagePush tasks which read from the quarkus-app/
-      # directory assembled by the previous step. No recompilation needed.
+      # Builds and pushes an OCI container image using Quarkus Jib. Both build
+      # and push are done in a single Gradle invocation so Jib uses the push
+      # code path, which skips the local `docker load` that fails on GitHub
+      # Actions runners (no Docker daemon). See quarkusio/quarkus#49465.
       - name: Build & push container image — ${{ matrix.service }}
         id: build-image
         env:
@@ -567,17 +569,13 @@ jobs:
           set -euo pipefail
           SERVICE="${{ matrix.service }}"
           VERSION="${{ needs.detect-changes.outputs.build-version }}"
-
-          # Build the container image using Jib (reads from quarkus-app/)
+          # Build & push in a single Gradle invocation. Setting both build=true
+          # and push=true makes Jib use the push code path, which skips the
+          # local `docker load` that fails on GitHub Actions (no Docker daemon).
+          # See: https://github.com/quarkusio/quarkus/issues/49465
           ./gradlew :services:${SERVICE}:imageBuild \
             -Pversion="${VERSION}" \
             -Dquarkus.container-image.build=true \
-            --no-daemon \
-            --build-cache
-
-          # Push to GHCR (separate step for clearer error messages)
-          ./gradlew :services:${SERVICE}:imagePush \
-            -Pversion="${VERSION}" \
             -Dquarkus.container-image.push=true \
             --no-daemon \
             --build-cache

@@ -39,6 +39,7 @@ dependencies {
     // Container image (Jib — no Docker daemon needed)
     implementation("io.quarkus:quarkus-container-image-jib")
 
+
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
     // OpenTelemetry distributed tracing
