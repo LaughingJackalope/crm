@@ -1,5 +1,5 @@
 plugins {
-    id("io.quarkus") version "3.28.1"
+    id("io.quarkus") version "3.36.3"
     id("crm.quarkus-convention")
 }
 
